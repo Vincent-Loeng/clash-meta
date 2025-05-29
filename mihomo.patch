@@ -1,22 +1,20 @@
-diff --git a/component/process/process_freebsd_amd64.go b/component/process/process_freebsd_x86.go
-similarity index 92%
+diff --git a/component/process/process_freebsd_amd64.go b/component/process/process_freebsd.go
+similarity index 93%
 rename from component/process/process_freebsd_amd64.go
-rename to component/process/process_freebsd_x86.go
-index cb43c5ff..5e6d923c 100644
+rename to component/process/process_freebsd.go
+index cb43c5ff..def51450 100644
 --- a/component/process/process_freebsd_amd64.go
-+++ b/component/process/process_freebsd_x86.go
-@@ -1,3 +1,5 @@
-+//go:build freebsd && (386 || amd64)
-+
- package process
- 
- import (
-@@ -177,33 +179,29 @@ func (s *searcher) searchSocketPid(socket uint64) (uint32, error) {
- 	return 0, ErrNotFound
- }
- 
--func newSearcher(major int) *searcher {
-+func newSearcher(major int, machine string) *searcher {
++++ b/component/process/process_freebsd.go
+@@ -4,6 +4,7 @@ import (
+ 	"encoding/binary"
+ 	"fmt"
+ 	"net/netip"
++	"runtime"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -180,30 +181,28 @@ func (s *searcher) searchSocketPid(socket uint64) (uint32, error) {
+ func newSearcher(major int) *searcher {
  	var s *searcher
  	switch major {
 -	case 11:
@@ -41,10 +39,12 @@ index cb43c5ff..5e6d923c 100644
 +		fallthrough
 +	case 15:
 +		var vflag int
-+		if machine == "i386" {
++		if runtime.GOARCH == "386" || runtime.GOARCH == "arm" {
 +			vflag = 388
-+		} else {
++		} else if runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64" {
 +			vflag = 392
++		} else {
++			return nil
 +		}
  		s = &searcher{
  			headSize:     64,
@@ -57,33 +57,13 @@ index cb43c5ff..5e6d923c 100644
  			socket:       16,
  			fileItemSize: 128,
  			data:         56,
-@@ -218,6 +216,10 @@ func initSearcher() error {
- 	if err != nil {
- 		return err
- 	}
-+	machine, err := syscall.Sysctl("hw.machine")
-+	if err != nil {
-+		return err
-+	}
- 
- 	dot := strings.Index(osRelease, ".")
- 	if dot != -1 {
-@@ -227,7 +229,7 @@ func initSearcher() error {
- 	if err != nil {
- 		return err
- 	}
--	defaultSearcher = newSearcher(major)
-+	defaultSearcher = newSearcher(major, machine)
- 	if defaultSearcher == nil {
- 		return fmt.Errorf("unsupported freebsd version %d", major)
- 	}
 diff --git a/component/process/process_other.go b/component/process/process_other.go
-index eea6e5fd..4070c467 100644
+index eea6e5fd..83b6f085 100644
 --- a/component/process/process_other.go
 +++ b/component/process/process_other.go
 @@ -1,4 +1,4 @@
 -//go:build !darwin && !linux && !windows && (!freebsd || !amd64)
-+//go:build !darwin && !linux && !windows && (!freebsd || !(amd64 || 386))
++//go:build !darwin && !linux && !windows && !freebsd
  
  package process
  
