@@ -45,6 +45,8 @@ jobs:
           patch -p1 < ../mihomo.patch
           sing_tun_version=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }')
           echo -e "\nreplace github.com/metacubex/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
+          git_head=$(git rev-parse --short HEAD)
+          echo "version=Alpha-${git_head}-vincent-auto" >> $GITHUB_ENV
 
       - name: Build binary files
         run: |
@@ -53,7 +55,7 @@ jobs:
           arch_array=(amd64 386 arm64 arm)
           for os in ${os_array[@]}; do
             for arch in ${arch_array[@]}; do
-              GOOS=${os} GOARCH=${arch} CGO_ENABLED=0 go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${RELEASE_NAME}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
+              GOOS=${os} GOARCH=${arch} CGO_ENABLED=0 go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${version}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
               mv mihomo mihomo-${os}-${arch}
             done
           done
