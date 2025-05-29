@@ -26,11 +26,6 @@ jobs:
         with:
           ref: hidden
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ^1.24.3
-
       - name: Apply patches
         run: |
           git clone --depth 1 https://github.com/MetaCubeX/sing-tun.git sing-tun
@@ -48,7 +43,29 @@ jobs:
           git_head=$(git rev-parse --short HEAD)
           echo "version=Alpha-${git_head}-vincent-auto" >> $GITHUB_ENV
 
+      - name: Check for new version
+        run: |
+          if [ -f last_version ]; then
+            LAST_VERSION=$(cat last_version)
+          else
+            LAST_VERSION="none"
+          fi
+          echo "Last version: ${LAST_VERSION}, current version: ${{ env.version }}"
+          if [ "${{ env.version }}" != "${LAST_VERSION}" ]; then
+            echo "${{ env.version }}" > last_version
+            echo "BUILD=true" >> $GITHUB_ENV
+          else
+            echo "BUILD=false" >> $GITHUB_ENV
+          fi
+
+      - name: Setup Go
+        if: ${{ env.BUILD == 'true' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.24.3
+
       - name: Build binary files
+        if: ${{ env.BUILD == 'true' }}
         run: |
           cd mihomo
           os_array=(freebsd)
@@ -61,11 +78,13 @@ jobs:
           done
 
       - name: Move files to publish directory
+        if: ${{ env.BUILD == 'true' }}
         run: |
           mkdir -p publish
           cp mihomo/mihomo-* ./publish/
 
       - name: Release and upload assets
+        if: ${{ env.BUILD == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ env.RELEASE_NAME }}
@@ -74,6 +93,17 @@ jobs:
           prerelease: false
           files: |
             ./publish/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push last_version to "hidden" branch
+        if: ${{ env.BUILD == 'true' }}
+        run: |
+          git config --local user.name "Vincent Loeng"
+          git config --local user.email "173226116+Vincent-Loeng@users.noreply.github.com"
+          git add last_version
+          git commit -m "Release ${{ env.RELEASE_NAME }}"
+          git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
