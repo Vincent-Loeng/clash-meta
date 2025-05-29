@@ -55,7 +55,7 @@ jobs:
           arch_array=(amd64 386 arm64 arm)
           for os in ${os_array[@]}; do
             for arch in ${arch_array[@]}; do
-              GOOS=${os} GOARCH=${arch} CGO_ENABLED=0 go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${version}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
+              GOOS=${os} GOARCH=${arch} CGO_ENABLED=0 go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${{ env.version }}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
               mv mihomo mihomo-${os}-${arch}
             done
           done
