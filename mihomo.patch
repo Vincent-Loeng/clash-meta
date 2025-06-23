@@ -87,7 +87,7 @@ index eea6e5fd..83b6f085 100644
  package process
  
 diff --git a/config/config.go b/config/config.go
-index 3faca185..2d1aa1fd 100644
+index 3faca185..b11f7a7d 100644
 --- a/config/config.go
 +++ b/config/config.go
 @@ -8,6 +8,7 @@ import (
@@ -106,25 +106,12 @@ index 3faca185..2d1aa1fd 100644
 +	limitDNS := config.General.Tun.Enable && config.General.Tun.AutoRoute && runtime.GOOS == "freebsd"
 +	if limitDNS {
 +		if dnsCfg.Listen != "127.0.0.1:53" && dnsCfg.Listen != "0.0.0.0:53" {
-+			return nil, fmt.Errorf("the option `dns.listen` should be 127.0.0.1:53 or 0.0.0.0:53")
++			return nil, fmt.Errorf("listen must be 127.0.0.1:53 or 0.0.0.0:53")
 +		}
 +	}
  
  	err = parseTuicServer(rawCfg.TuicServer, config.General)
  	if err != nil {
-diff --git a/go.mod b/go.mod
-index b79db25a..8d04bb97 100644
---- a/go.mod
-+++ b/go.mod
-@@ -64,6 +64,8 @@ require (
- 	lukechampine.com/blake3 v1.3.0 // lastest version compatible with golang1.20
- )
- 
-+replace github.com/metacubex/sing-tun v0.4.7-0.20250611091011-60774779fdd8 => ../sing-tun-meta
-+
- require (
- 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
- 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 diff --git a/listener/config/tun.go b/listener/config/tun.go
 index fa20db1e..6e55d67b 100644
 --- a/listener/config/tun.go
