@@ -87,7 +87,7 @@ index eea6e5fd..83b6f085 100644
  package process
  
 diff --git a/config/config.go b/config/config.go
-index d79ab65c..741f260e 100644
+index 3faca185..2d1aa1fd 100644
 --- a/config/config.go
 +++ b/config/config.go
 @@ -8,6 +8,7 @@ import (
@@ -98,7 +98,7 @@ index d79ab65c..741f260e 100644
  	"strings"
  	"time"
  	_ "unsafe"
-@@ -678,6 +679,13 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
+@@ -679,6 +680,13 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
  	if err != nil {
  		return nil, err
  	}
@@ -112,11 +112,24 @@ index d79ab65c..741f260e 100644
  
  	err = parseTuicServer(rawCfg.TuicServer, config.General)
  	if err != nil {
+diff --git a/go.mod b/go.mod
+index b79db25a..8d04bb97 100644
+--- a/go.mod
++++ b/go.mod
+@@ -64,6 +64,8 @@ require (
+ 	lukechampine.com/blake3 v1.3.0 // lastest version compatible with golang1.20
+ )
+ 
++replace github.com/metacubex/sing-tun v0.4.7-0.20250611091011-60774779fdd8 => ../sing-tun-meta
++
+ require (
+ 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
+ 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 diff --git a/listener/config/tun.go b/listener/config/tun.go
-index 4e12056d..b3fe56d4 100644
+index fa20db1e..6e55d67b 100644
 --- a/listener/config/tun.go
 +++ b/listener/config/tun.go
-@@ -36,6 +36,7 @@ type Tun struct {
+@@ -24,6 +24,7 @@ type Tun struct {
  	Inet6Address           []netip.Prefix `yaml:"inet6-address" json:"inet6-address,omitempty"`
  	IPRoute2TableIndex     int            `yaml:"iproute2-table-index" json:"iproute2-table-index,omitempty"`
  	IPRoute2RuleIndex      int            `yaml:"iproute2-rule-index" json:"iproute2-rule-index,omitempty"`
@@ -125,7 +138,7 @@ index 4e12056d..b3fe56d4 100644
  	AutoRedirectInputMark  uint32         `yaml:"auto-redirect-input-mark" json:"auto-redirect-input-mark,omitempty"`
  	AutoRedirectOutputMark uint32         `yaml:"auto-redirect-output-mark" json:"auto-redirect-output-mark,omitempty"`
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
-index 6998f0c1..740dd89f 100644
+index b0528557..0c979622 100644
 --- a/listener/sing_tun/server.go
 +++ b/listener/sing_tun/server.go
 @@ -188,6 +188,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
@@ -146,4 +159,4 @@ index 6998f0c1..740dd89f 100644
 +		FIBIndex:                 fibIndex,
  		AutoRedirectInputMark:    inputMark,
  		AutoRedirectOutputMark:   outputMark,
- 		StrictRoute:              options.StrictRoute,
+ 		Inet4LoopbackAddress:     common.Filter(options.LoopbackAddress, netip.Addr.Is4),

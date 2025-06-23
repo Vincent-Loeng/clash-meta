@@ -19,7 +19,7 @@ index a5fc117..d1ed599 100644
  package tun
  
 diff --git a/tun.go b/tun.go
-index 2934421..5db4aef 100644
+index 3698ae7..50fb7cc 100644
 --- a/tun.go
 +++ b/tun.go
 @@ -51,6 +51,7 @@ type LinuxTUN interface {
@@ -38,7 +38,7 @@ index 2934421..5db4aef 100644
  	AutoRedirectMarkMode     bool
  	AutoRedirectInputMark    uint32
  	AutoRedirectOutputMark   uint32
-@@ -105,6 +107,8 @@ func (o *Options) Inet4GatewayAddr() netip.Addr {
+@@ -107,6 +109,8 @@ func (o *Options) Inet4GatewayAddr() netip.Addr {
  				return o.Inet4Address[0].Addr().Next()
  			}
  		case "darwin":
@@ -47,7 +47,7 @@ index 2934421..5db4aef 100644
  			return o.Inet4Address[0].Addr()
  		default:
  			if HasNextAddress(o.Inet4Address[0], 1) {
-@@ -129,6 +133,8 @@ func (o *Options) Inet6GatewayAddr() netip.Addr {
+@@ -131,6 +135,8 @@ func (o *Options) Inet6GatewayAddr() netip.Addr {
  				return o.Inet6Address[0].Addr().Next()
  			}
  		case "darwin":
