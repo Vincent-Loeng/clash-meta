@@ -16,8 +16,8 @@ jobs:
     steps:
       - name: Set variables
         run: |
-          echo "RELEASE_NAME=Alpha-$(date +%Y%m%d)-vincent-auto" >> $GITHUB_ENV
-          echo "TAG_NAME=Alpha-$(date +%Y%m%d)-vincent-auto" >> $GITHUB_ENV
+          echo "RELEASE_NAME=Alpha-vincent-auto-$(date +%Y%m%d)" >> $GITHUB_ENV
+          echo "TAG_NAME=Alpha-vincent-auto-$(date +%Y%m%d)" >> $GITHUB_ENV
           echo "tags=with_gvisor" >> $GITHUB_ENV
         shell: bash
 
