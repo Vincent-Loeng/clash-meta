@@ -16,8 +16,8 @@ jobs:
     steps:
       - name: Set variables
         run: |
-          echo "RELEASE_NAME=Alpha-vincent-auto-$(date +%Y%m%d)" >> $GITHUB_ENV
-          echo "TAG_NAME=Alpha-vincent-auto-$(date +%Y%m%d)" >> $GITHUB_ENV
+          echo "RELEASE_NAME=Alpha-vincent-$(date +%Y%m%d)" >> $GITHUB_ENV
+          echo "TAG_NAME=Alpha-vincent-$(date +%Y%m%d)" >> $GITHUB_ENV
           echo "tags=with_gvisor" >> $GITHUB_ENV
         shell: bash
 
@@ -41,7 +41,7 @@ jobs:
           sing_tun_version=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }')
           echo -e "\nreplace github.com/metacubex/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
           git_head=$(git rev-parse --short HEAD)
-          echo "version=Alpha-${git_head}-vincent-auto" >> $GITHUB_ENV
+          echo "version=Alpha-${git_head}-vincent" >> $GITHUB_ENV
 
       - name: Check for new version
         run: |
