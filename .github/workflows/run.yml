@@ -49,6 +49,7 @@ jobs:
           fi
 
       - name: Apply patches
+        if: ${{ env.BUILD == 'true' }}
         run: |
           git clone --depth 1 https://github.com/MetaCubeX/sing-tun.git sing-tun
           git clone --depth 1 -b Meta https://github.com/MetaCubeX/mihomo.git mihomo
