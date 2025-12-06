@@ -23,6 +23,13 @@ Automatically build the latest version with patches
 2. Match process 匹配进程
 
 
+## Examples 示例
+
+Please refer to the given [template](template.yaml) 
+
+请参考提供的[模板](template.yaml)
+
+
 ## Notes 注意事项
 
 1. Please configure DNS servers manually when using automatic routing on OPNsense
