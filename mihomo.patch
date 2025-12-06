@@ -86,16 +86,6 @@ index eea6e5fd..83b6f085 100644
  
  package process
  
-diff --git a/go.mod b/go.mod
-index 500aad83..260d1dbb 100644
---- a/go.mod
-+++ b/go.mod
-@@ -111,3 +111,5 @@ require (
- 	golang.org/x/time v0.7.0 // indirect
- 	golang.org/x/tools v0.24.0 // indirect
- )
-+
-+replace github.com/metacubex/sing-tun v0.4.10 => ../sing-tun-meta
 diff --git a/listener/config/tun.go b/listener/config/tun.go
 index 0e262329..235f8736 100644
 --- a/listener/config/tun.go
