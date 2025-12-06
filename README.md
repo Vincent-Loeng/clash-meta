@@ -25,14 +25,10 @@ Automatically build the latest version with patches
 
 ## Notes 注意事项
 
-1. The `dns.listen` field must be `127.0.0.1:53` or `0.0.0.0:53` when using automatic routing
-
-   使用自动路由时，`dns.listen`必须填`127.0.0.1:53`或`0.0.0.0:53`
-
-2. Please configure DNS servers manually when using automatic routing on OPNsense
+1. Please configure DNS servers manually when using automatic routing on OPNsense
 
    在 OPNsense 上使用自动路由时，请手动配置 DNS 服务器
 
-3. Please allow packets to pass when using `system` stack on pfSense/OPNsense
+2. Please allow packets to pass when using `system` stack on pfSense/OPNsense
 
    在 pfSense/OPNsense 上使用`system`栈时，请允许数据包通过
