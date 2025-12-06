@@ -86,34 +86,18 @@ index eea6e5fd..83b6f085 100644
  
  package process
  
-diff --git a/config/config.go b/config/config.go
-index 3faca185..b11f7a7d 100644
---- a/config/config.go
-+++ b/config/config.go
-@@ -8,6 +8,7 @@ import (
- 	"net/netip"
- 	"net/url"
- 	"path/filepath"
-+	"runtime"
- 	"strings"
- 	"time"
- 	_ "unsafe"
-@@ -679,6 +680,13 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
- 	if err != nil {
- 		return nil, err
- 	}
-+	// check dns settings
-+	limitDNS := config.General.Tun.Enable && config.General.Tun.AutoRoute && runtime.GOOS == "freebsd"
-+	if limitDNS {
-+		if dnsCfg.Listen != "127.0.0.1:53" && dnsCfg.Listen != "0.0.0.0:53" {
-+			return nil, fmt.Errorf("listen must be 127.0.0.1:53 or 0.0.0.0:53")
-+		}
-+	}
- 
- 	err = parseTuicServer(rawCfg.TuicServer, config.General)
- 	if err != nil {
+diff --git a/go.mod b/go.mod
+index 500aad83..260d1dbb 100644
+--- a/go.mod
++++ b/go.mod
+@@ -111,3 +111,5 @@ require (
+ 	golang.org/x/time v0.7.0 // indirect
+ 	golang.org/x/tools v0.24.0 // indirect
+ )
++
++replace github.com/metacubex/sing-tun v0.4.10 => ../sing-tun-meta
 diff --git a/listener/config/tun.go b/listener/config/tun.go
-index fa20db1e..6e55d67b 100644
+index 0e262329..235f8736 100644
 --- a/listener/config/tun.go
 +++ b/listener/config/tun.go
 @@ -24,6 +24,7 @@ type Tun struct {
@@ -124,11 +108,21 @@ index fa20db1e..6e55d67b 100644
  	AutoRedirect           bool           `yaml:"auto-redirect" json:"auto-redirect,omitempty"`
  	AutoRedirectInputMark  uint32         `yaml:"auto-redirect-input-mark" json:"auto-redirect-input-mark,omitempty"`
  	AutoRedirectOutputMark uint32         `yaml:"auto-redirect-output-mark" json:"auto-redirect-output-mark,omitempty"`
+@@ -127,6 +128,9 @@ func (t *Tun) Equal(other Tun) bool {
+ 	if t.IPRoute2RuleIndex != other.IPRoute2RuleIndex {
+ 		return false
+ 	}
++	if t.FIBIndex != other.FIBIndex {
++		return false
++	}
+ 	if t.AutoRedirect != other.AutoRedirect {
+ 		return false
+ 	}
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
-index b0528557..0c979622 100644
+index 87f413d4..54d8d7b1 100644
 --- a/listener/sing_tun/server.go
 +++ b/listener/sing_tun/server.go
-@@ -188,6 +188,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -189,6 +189,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  	if ruleIndex == 0 {
  		ruleIndex = tun.DefaultIPRoute2RuleIndex
  	}
@@ -139,7 +133,7 @@ index b0528557..0c979622 100644
  	inputMark := options.AutoRedirectInputMark
  	if inputMark == 0 {
  		inputMark = tun.DefaultAutoRedirectInputMark
-@@ -345,6 +349,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -347,6 +351,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  		AutoRoute:                options.AutoRoute,
  		IPRoute2TableIndex:       tableIndex,
  		IPRoute2RuleIndex:        ruleIndex,
