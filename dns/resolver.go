@@ -9,7 +9,6 @@ import (
 	"github.com/metacubex/mihomo/common/arc"
 	"github.com/metacubex/mihomo/common/lru"
 	"github.com/metacubex/mihomo/common/singleflight"
-	"github.com/metacubex/mihomo/component/fakeip"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/component/trie"
 	C "github.com/metacubex/mihomo/constant"
@@ -40,7 +39,6 @@ type result struct {
 type Resolver struct {
 	ipv6                  bool
 	ipv6Timeout           time.Duration
-	hosts                 *trie.DomainTrie[resolver.HostValue]
 	main                  []dnsClient
 	fallback              []dnsClient
 	fallbackDomainFilters []C.DomainMatcher
@@ -452,20 +450,22 @@ type Config struct {
 	DirectFollowPolicy   bool
 	IPv6                 bool
 	IPv6Timeout          uint
-	EnhancedMode         C.DNSMode
 	FallbackIPFilter     []C.IpMatcher
 	FallbackDomainFilter []C.DomainMatcher
-	Pool                 *fakeip.Pool
-	Hosts                *trie.DomainTrie[resolver.HostValue]
 	Policy               []Policy
 	CacheAlgorithm       string
+	CacheMaxSize         int
 }
 
 func (config Config) newCache() dnsCache {
-	if config.CacheAlgorithm == "" || config.CacheAlgorithm == "lru" {
-		return lru.New(lru.WithSize[string, *D.Msg](4096), lru.WithStale[string, *D.Msg](true))
-	} else {
-		return arc.New(arc.WithSize[string, *D.Msg](4096))
+	if config.CacheMaxSize == 0 {
+		config.CacheMaxSize = 4096
+	}
+	switch config.CacheAlgorithm {
+	case "arc":
+		return arc.New(arc.WithSize[string, *D.Msg](config.CacheMaxSize))
+	default:
+		return lru.New(lru.WithSize[string, *D.Msg](config.CacheMaxSize), lru.WithStale[string, *D.Msg](true))
 	}
 }
 
@@ -525,7 +525,6 @@ func NewResolver(config Config) (rs Resolvers) {
 		ipv6:        config.IPv6,
 		main:        cacheTransform(config.Main),
 		cache:       config.newCache(),
-		hosts:       config.Hosts,
 		ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
 	}
 	r.defaultResolver = defaultResolver
@@ -536,7 +535,6 @@ func NewResolver(config Config) (rs Resolvers) {
 			ipv6:        config.IPv6,
 			main:        cacheTransform(config.ProxyServer),
 			cache:       config.newCache(),
-			hosts:       config.Hosts,
 			ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
 		}
 	}
@@ -546,7 +544,6 @@ func NewResolver(config Config) (rs Resolvers) {
 			ipv6:        config.IPv6,
 			main:        cacheTransform(config.DirectServer),
 			cache:       config.newCache(),
-			hosts:       config.Hosts,
 			ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
 		}
 	}

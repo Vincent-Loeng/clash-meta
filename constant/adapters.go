@@ -44,6 +44,7 @@ const (
 	Ssh
 	Mieru
 	AnyTLS
+	Sudoku
 )
 
 const (
@@ -139,8 +140,11 @@ type ProxyAdapter interface {
 	// SupportUOT return UDP over TCP support
 	SupportUOT() bool
 
+	// SupportWithDialer only for deprecated relay group, the new protocol does not need to be implemented.
 	SupportWithDialer() NetWork
+	// DialContextWithDialer only for deprecated relay group, the new protocol does not need to be implemented.
 	DialContextWithDialer(ctx context.Context, dialer Dialer, metadata *Metadata) (Conn, error)
+	// ListenPacketWithDialer only for deprecated relay group, the new protocol does not need to be implemented.
 	ListenPacketWithDialer(ctx context.Context, dialer Dialer, metadata *Metadata) (PacketConn, error)
 
 	// IsL3Protocol return ProxyAdapter working in L3 (tell dns module not pass the domain to avoid loopback)
@@ -178,12 +182,6 @@ type Proxy interface {
 	ExtraDelayHistories() map[string]ProxyState
 	LastDelayForTestUrl(url string) uint16
 	URLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (uint16, error)
-
-	// Deprecated: use DialContext instead.
-	Dial(metadata *Metadata) (Conn, error)
-
-	// Deprecated: use DialPacketConn instead.
-	DialUDP(metadata *Metadata) (PacketConn, error)
 }
 
 // AdapterType is enum of adapter type
@@ -233,6 +231,8 @@ func (at AdapterType) String() string {
 		return "Mieru"
 	case AnyTLS:
 		return "AnyTLS"
+	case Sudoku:
+		return "Sudoku"
 	case Relay:
 		return "Relay"
 	case Selector:

@@ -20,6 +20,7 @@ import (
 	tlsC "github.com/metacubex/mihomo/component/tls"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
+	"github.com/metacubex/mihomo/ntp"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 
 	"github.com/go-chi/chi/v5"
@@ -56,17 +57,19 @@ type Memory struct {
 }
 
 type Config struct {
-	Addr        string
-	TLSAddr     string
-	UnixAddr    string
-	PipeAddr    string
-	Secret      string
-	Certificate string
-	PrivateKey  string
-	EchKey      string
-	DohServer   string
-	IsDebug     bool
-	Cors        Cors
+	Addr           string
+	TLSAddr        string
+	UnixAddr       string
+	PipeAddr       string
+	Secret         string
+	Certificate    string
+	PrivateKey     string
+	ClientAuthType string
+	ClientAuthCert string
+	EchKey         string
+	DohServer      string
+	IsDebug        bool
+	Cors           Cors
 }
 
 type Cors struct {
@@ -201,9 +204,23 @@ func startTLS(cfg *Config) {
 		}
 
 		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
-		tlsConfig := &tlsC.Config{}
+		tlsConfig := &tlsC.Config{Time: ntp.Now}
 		tlsConfig.NextProtos = []string{"h2", "http/1.1"}
 		tlsConfig.Certificates = []tlsC.Certificate{tlsC.UCertificate(cert)}
+		tlsConfig.ClientAuth = tlsC.ClientAuthTypeFromString(cfg.ClientAuthType)
+		if len(cfg.ClientAuthCert) > 0 {
+			if tlsConfig.ClientAuth == tlsC.NoClientCert {
+				tlsConfig.ClientAuth = tlsC.RequireAndVerifyClientCert
+			}
+		}
+		if tlsConfig.ClientAuth == tlsC.VerifyClientCertIfGiven || tlsConfig.ClientAuth == tlsC.RequireAndVerifyClientCert {
+			pool, err := ca.LoadCertificates(cfg.ClientAuthCert, C.Path)
+			if err != nil {
+				log.Errorln("External controller tls listen error: %s", err)
+				return
+			}
+			tlsConfig.ClientCAs = pool
+		}
 
 		if cfg.EchKey != "" {
 			err = ech.LoadECHKey(cfg.EchKey, tlsConfig, C.Path)
@@ -299,7 +316,7 @@ func startPipe(cfg *Config) {
 	}
 }
 
-func safeEuqal(a, b string) bool {
+func safeEqual(a, b string) bool {
 	aBuf := utils.ImmutableBytesFromString(a)
 	bBuf := utils.ImmutableBytesFromString(b)
 	return subtle.ConstantTimeCompare(aBuf, bBuf) == 1
@@ -311,7 +328,7 @@ func authentication(secret string) func(http.Handler) http.Handler {
 			// Browser websocket not support custom header
 			if r.Header.Get("Upgrade") == "websocket" && r.URL.Query().Get("token") != "" {
 				token := r.URL.Query().Get("token")
-				if !safeEuqal(token, secret) {
+				if !safeEqual(token, secret) {
 					render.Status(r, http.StatusUnauthorized)
 					render.JSON(w, r, ErrUnauthorized)
 					return
@@ -324,7 +341,7 @@ func authentication(secret string) func(http.Handler) http.Handler {
 			bearer, token, found := strings.Cut(header, " ")
 
 			hasInvalidHeader := bearer != "Bearer"
-			hasInvalidSecret := !found || !safeEuqal(token, secret)
+			hasInvalidSecret := !found || !safeEqual(token, secret)
 			if hasInvalidHeader || hasInvalidSecret {
 				render.Status(r, http.StatusUnauthorized)
 				render.JSON(w, r, ErrUnauthorized)

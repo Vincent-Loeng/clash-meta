@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,10 +13,10 @@ import (
 	"github.com/metacubex/mihomo/common/atomic"
 	"github.com/metacubex/mihomo/common/queue"
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/common/xsync"
 	"github.com/metacubex/mihomo/component/ca"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
-	"github.com/puzpuzpuz/xsync/v3"
 )
 
 var UnifiedDelay = atomic.NewBool(false)
@@ -35,7 +34,7 @@ type Proxy struct {
 	C.ProxyAdapter
 	alive   atomic.Bool
 	history *queue.Queue[C.DelayHistory]
-	extra   *xsync.MapOf[string, *internalProxyState]
+	extra   xsync.Map[string, *internalProxyState]
 }
 
 // Adapter implements C.Proxy
@@ -52,24 +51,10 @@ func (p *Proxy) AliveForTestUrl(url string) bool {
 	return p.alive.Load()
 }
 
-// Dial implements C.Proxy
-func (p *Proxy) Dial(metadata *C.Metadata) (C.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
-	defer cancel()
-	return p.DialContext(ctx, metadata)
-}
-
 // DialContext implements C.ProxyAdapter
 func (p *Proxy) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
 	conn, err := p.ProxyAdapter.DialContext(ctx, metadata)
 	return conn, err
-}
-
-// DialUDP implements C.ProxyAdapter
-func (p *Proxy) DialUDP(metadata *C.Metadata) (C.PacketConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultUDPTimeout)
-	defer cancel()
-	return p.ListenPacketContext(ctx, metadata)
 }
 
 // ListenPacketContext implements C.ProxyAdapter
@@ -236,6 +221,11 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 	}
 	req = req.WithContext(ctx)
 
+	tlsConfig, err := ca.GetTLSConfig(ca.Option{})
+	if err != nil {
+		return
+	}
+
 	transport := &http.Transport{
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return instance, nil
@@ -245,7 +235,7 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		TLSClientConfig:       ca.GetGlobalTLSConfig(&tls.Config{}),
+		TLSClientConfig:       tlsConfig,
 	}
 
 	client := http.Client{
@@ -293,7 +283,7 @@ func NewProxy(adapter C.ProxyAdapter) *Proxy {
 		ProxyAdapter: adapter,
 		history:      queue.New[C.DelayHistory](defaultHistoriesNum),
 		alive:        atomic.NewBool(true),
-		extra:        xsync.NewMapOf[string, *internalProxyState]()}
+	}
 }
 
 func urlToMetadata(rawURL string) (addr C.Metadata, err error) {

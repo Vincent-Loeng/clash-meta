@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync"
 
 	CN "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/proxydialer"
+	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
 
 	mieruclient "github.com/enfein/mieru/v3/apis/client"
@@ -28,15 +30,55 @@ type Mieru struct {
 
 type MieruOption struct {
 	BasicOption
-	Name         string `proxy:"name"`
-	Server       string `proxy:"server"`
-	Port         int    `proxy:"port,omitempty"`
-	PortRange    string `proxy:"port-range,omitempty"`
-	Transport    string `proxy:"transport"`
-	UDP          bool   `proxy:"udp,omitempty"`
-	UserName     string `proxy:"username"`
-	Password     string `proxy:"password"`
-	Multiplexing string `proxy:"multiplexing,omitempty"`
+	Name          string `proxy:"name"`
+	Server        string `proxy:"server"`
+	Port          int    `proxy:"port,omitempty"`
+	PortRange     string `proxy:"port-range,omitempty"`
+	Transport     string `proxy:"transport"`
+	UDP           bool   `proxy:"udp,omitempty"`
+	UserName      string `proxy:"username"`
+	Password      string `proxy:"password"`
+	Multiplexing  string `proxy:"multiplexing,omitempty"`
+	HandshakeMode string `proxy:"handshake-mode,omitempty"`
+}
+
+type mieruPacketDialer struct {
+	C.Dialer
+}
+
+var _ mierucommon.PacketDialer = (*mieruPacketDialer)(nil)
+
+func (pd mieruPacketDialer) ListenPacket(ctx context.Context, network, laddr, raddr string) (net.PacketConn, error) {
+	rAddrPort, err := netip.ParseAddrPort(raddr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", raddr, err)
+	}
+	return pd.Dialer.ListenPacket(ctx, network, laddr, rAddrPort)
+}
+
+type mieruDNSResolver struct {
+	prefer C.DNSPrefer
+}
+
+var _ mierucommon.DNSResolver = (*mieruDNSResolver)(nil)
+
+func (dr mieruDNSResolver) LookupIP(ctx context.Context, network, host string) (_ []net.IP, err error) {
+	var ip netip.Addr
+	switch dr.prefer {
+	case C.IPv4Only:
+		ip, err = resolver.ResolveIPv4WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+	case C.IPv6Only:
+		ip, err = resolver.ResolveIPv6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+	case C.IPv6Prefer:
+		ip, err = resolver.ResolveIPPrefer6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+	default:
+		ip, err = resolver.ResolveIPWithResolver(ctx, host, resolver.ProxyServerHostResolver)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("can't resolve ip: %w", err)
+	}
+	// TODO: handle IP4P (due to interface limitations, it's currently impossible to modify the port here)
+	return []net.IP{ip.AsSlice()}, nil
 }
 
 // DialContext implements C.ProxyAdapter
@@ -101,6 +143,8 @@ func (m *Mieru) ensureClientIsRunning() error {
 		return err
 	}
 	config.Dialer = dialer
+	config.PacketDialer = mieruPacketDialer{Dialer: dialer}
+	config.Resolver = mieruDNSResolver{prefer: m.prefer}
 	if err := m.client.Store(config); err != nil {
 		return err
 	}
@@ -157,23 +201,21 @@ func (m *Mieru) Close() error {
 }
 
 func metadataToMieruNetAddrSpec(metadata *C.Metadata) mierumodel.NetAddrSpec {
+	spec := mierumodel.NetAddrSpec{
+		Net: metadata.NetWork.String(),
+	}
 	if metadata.Host != "" {
-		return mierumodel.NetAddrSpec{
-			AddrSpec: mierumodel.AddrSpec{
-				FQDN: metadata.Host,
-				Port: int(metadata.DstPort),
-			},
-			Net: "tcp",
+		spec.AddrSpec = mierumodel.AddrSpec{
+			FQDN: metadata.Host,
+			Port: int(metadata.DstPort),
 		}
 	} else {
-		return mierumodel.NetAddrSpec{
-			AddrSpec: mierumodel.AddrSpec{
-				IP:   metadata.DstIP.AsSlice(),
-				Port: int(metadata.DstPort),
-			},
-			Net: "tcp",
+		spec.AddrSpec = mierumodel.AddrSpec{
+			IP:   metadata.DstIP.AsSlice(),
+			Port: int(metadata.DstPort),
 		}
 	}
+	return spec
 }
 
 func buildMieruClientConfig(option MieruOption) (*mieruclient.ClientConfig, error) {
@@ -181,7 +223,13 @@ func buildMieruClientConfig(option MieruOption) (*mieruclient.ClientConfig, erro
 		return nil, fmt.Errorf("failed to validate mieru option: %w", err)
 	}
 
-	transportProtocol := mierupb.TransportProtocol_TCP.Enum()
+	var transportProtocol = mierupb.TransportProtocol_UNKNOWN_TRANSPORT_PROTOCOL.Enum()
+	switch option.Transport {
+	case "TCP":
+		transportProtocol = mierupb.TransportProtocol_TCP.Enum()
+	case "UDP":
+		transportProtocol = mierupb.TransportProtocol_UDP.Enum()
+	}
 	var server *mierupb.ServerEndpoint
 	if net.ParseIP(option.Server) != nil {
 		// server is an IP address
@@ -239,11 +287,17 @@ func buildMieruClientConfig(option MieruOption) (*mieruclient.ClientConfig, erro
 			},
 			Servers: []*mierupb.ServerEndpoint{server},
 		},
+		DNSConfig: &mierucommon.ClientDNSConfig{
+			BypassDialerDNS: true,
+		},
 	}
 	if multiplexing, ok := mierupb.MultiplexingLevel_value[option.Multiplexing]; ok {
 		config.Profile.Multiplexing = &mierupb.MultiplexingConfig{
 			Level: mierupb.MultiplexingLevel(multiplexing).Enum(),
 		}
+	}
+	if handshakeMode, ok := mierupb.HandshakeMode_value[option.HandshakeMode]; ok {
+		config.Profile.HandshakeMode = (*mierupb.HandshakeMode)(&handshakeMode)
 	}
 	return config, nil
 }
@@ -280,8 +334,8 @@ func validateMieruOption(option MieruOption) error {
 		}
 	}
 
-	if option.Transport != "TCP" {
-		return fmt.Errorf("transport must be TCP")
+	if option.Transport != "TCP" && option.Transport != "UDP" {
+		return fmt.Errorf("transport must be TCP or UDP")
 	}
 	if option.UserName == "" {
 		return fmt.Errorf("username is empty")
@@ -292,6 +346,11 @@ func validateMieruOption(option MieruOption) error {
 	if option.Multiplexing != "" {
 		if _, ok := mierupb.MultiplexingLevel_value[option.Multiplexing]; !ok {
 			return fmt.Errorf("invalid multiplexing level: %s", option.Multiplexing)
+		}
+	}
+	if option.HandshakeMode != "" {
+		if _, ok := mierupb.HandshakeMode_value[option.HandshakeMode]; !ok {
+			return fmt.Errorf("invalid handshake mode: %s", option.HandshakeMode)
 		}
 	}
 	return nil

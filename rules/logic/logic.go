@@ -78,21 +78,14 @@ func (r Range) containRange(preStart, preEnd int) bool {
 }
 
 func (logic *Logic) payloadToRule(subPayload string, parseRule common.ParseRuleFunc) (C.Rule, error) {
-	splitStr := strings.SplitN(subPayload, ",", 2)
-	if len(splitStr) < 2 {
-		return nil, fmt.Errorf("[%s] format is error", subPayload)
-	}
-
-	tp := splitStr[0]
-	payload := splitStr[1]
+	tp, payload, target, param := common.ParseRulePayload(subPayload, false)
 	switch tp {
 	case "MATCH", "SUB-RULE":
 		return nil, fmt.Errorf("unsupported rule type [%s] on logic rule", tp)
-	case "NOT", "OR", "AND":
-		return parseRule(tp, payload, "", nil, nil)
+	case "":
+		return nil, fmt.Errorf("[%s] format is error", subPayload)
 	}
-	param := strings.Split(payload, ",")
-	return parseRule(tp, param[0], "", param[1:], nil)
+	return parseRule(tp, payload, target, param, nil)
 }
 
 func (logic *Logic) format(payload string) ([]Range, error) {
@@ -195,11 +188,11 @@ func (logic *Logic) RuleType() C.RuleType {
 	return logic.ruleType
 }
 
-func matchSubRules(metadata *C.Metadata, name string, subRules map[string][]C.Rule) (bool, string) {
+func matchSubRules(metadata *C.Metadata, name string, subRules map[string][]C.Rule, helper C.RuleMatchHelper) (bool, string) {
 	for _, rule := range subRules[name] {
-		if m, a := rule.Match(metadata); m {
+		if m, a := rule.Match(metadata, helper); m {
 			if rule.RuleType() == C.SubRules {
-				return matchSubRules(metadata, rule.Adapter(), subRules)
+				return matchSubRules(metadata, rule.Adapter(), subRules, helper)
 			} else {
 				return m, a
 			}
@@ -208,28 +201,28 @@ func matchSubRules(metadata *C.Metadata, name string, subRules map[string][]C.Ru
 	return false, ""
 }
 
-func (logic *Logic) Match(metadata *C.Metadata) (bool, string) {
+func (logic *Logic) Match(metadata *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
 	switch logic.ruleType {
 	case C.SubRules:
-		if m, _ := logic.rules[0].Match(metadata); m {
-			return matchSubRules(metadata, logic.adapter, logic.subRules)
+		if m, _ := logic.rules[0].Match(metadata, helper); m {
+			return matchSubRules(metadata, logic.adapter, logic.subRules, helper)
 		}
 		return false, ""
 	case C.NOT:
-		if m, _ := logic.rules[0].Match(metadata); !m {
+		if m, _ := logic.rules[0].Match(metadata, helper); !m {
 			return true, logic.adapter
 		}
 		return false, ""
 	case C.OR:
 		for _, rule := range logic.rules {
-			if m, _ := rule.Match(metadata); m {
+			if m, _ := rule.Match(metadata, helper); m {
 				return true, logic.adapter
 			}
 		}
 		return false, ""
 	case C.AND:
 		for _, rule := range logic.rules {
-			if m, _ := rule.Match(metadata); !m {
+			if m, _ := rule.Match(metadata, helper); !m {
 				return false, logic.adapter
 			}
 		}
@@ -264,38 +257,6 @@ func (logic *Logic) Payload() string {
 		}
 	})
 	return logic.payload
-}
-
-func (logic *Logic) ShouldResolveIP() bool {
-	if logic.ruleType == C.SubRules {
-		for _, rule := range logic.subRules[logic.adapter] {
-			if rule.ShouldResolveIP() {
-				return true
-			}
-		}
-	}
-	for _, rule := range logic.rules {
-		if rule.ShouldResolveIP() {
-			return true
-		}
-	}
-	return false
-}
-
-func (logic *Logic) ShouldFindProcess() bool {
-	if logic.ruleType == C.SubRules {
-		for _, rule := range logic.subRules[logic.adapter] {
-			if rule.ShouldFindProcess() {
-				return true
-			}
-		}
-	}
-	for _, rule := range logic.rules {
-		if rule.ShouldFindProcess() {
-			return true
-		}
-	}
-	return false
 }
 
 func (logic *Logic) ProviderNames() (names []string) {

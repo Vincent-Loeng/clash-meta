@@ -16,7 +16,7 @@ import (
 	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"github.com/metacubex/mihomo/component/resource"
 	C "github.com/metacubex/mihomo/constant"
-	types "github.com/metacubex/mihomo/constant/provider"
+	P "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 
 	"github.com/dlclark/regexp2"
@@ -68,8 +68,8 @@ func (bp *baseProvider) HealthCheck() {
 	bp.healthCheck.check()
 }
 
-func (bp *baseProvider) Type() types.ProviderType {
-	return types.Proxy
+func (bp *baseProvider) Type() P.ProviderType {
+	return P.Proxy
 }
 
 func (bp *baseProvider) Proxies() []C.Proxy {
@@ -171,7 +171,7 @@ func (pp *proxySetProvider) Close() error {
 	return pp.Fetcher.Close()
 }
 
-func NewProxySetProvider(name string, interval time.Duration, payload []map[string]any, parser resource.Parser[[]C.Proxy], vehicle types.Vehicle, hc *HealthCheck) (*ProxySetProvider, error) {
+func NewProxySetProvider(name string, interval time.Duration, payload []map[string]any, parser resource.Parser[[]C.Proxy], vehicle P.Vehicle, hc *HealthCheck) (*ProxySetProvider, error) {
 	pd := &proxySetProvider{
 		baseProvider: baseProvider{
 			name:        name,
@@ -238,8 +238,8 @@ func (ip *inlineProvider) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (ip *inlineProvider) VehicleType() types.VehicleType {
-	return types.Inline
+func (ip *inlineProvider) VehicleType() P.VehicleType {
+	return P.Inline
 }
 
 func (ip *inlineProvider) Update() error {
@@ -303,8 +303,8 @@ func (cp *compatibleProvider) Update() error {
 	return nil
 }
 
-func (cp *compatibleProvider) VehicleType() types.VehicleType {
-	return types.Compatible
+func (cp *compatibleProvider) VehicleType() P.VehicleType {
+	return P.Compatible
 }
 
 func NewCompatibleProvider(name string, proxies []C.Proxy, hc *HealthCheck) (*CompatibleProvider, error) {
@@ -331,13 +331,20 @@ func (cp *CompatibleProvider) Close() error {
 }
 
 func NewProxiesParser(filter string, excludeFilter string, excludeType string, dialerProxy string, override OverrideSchema) (resource.Parser[[]C.Proxy], error) {
-	excludeFilterReg, err := regexp2.Compile(excludeFilter, regexp2.None)
-	if err != nil {
-		return nil, fmt.Errorf("invalid excludeFilter regex: %w", err)
-	}
 	var excludeTypeArray []string
 	if excludeType != "" {
 		excludeTypeArray = strings.Split(excludeType, "|")
+	}
+
+	var excludeFilterRegs []*regexp2.Regexp
+	if excludeFilter != "" {
+		for _, excludeFilter := range strings.Split(excludeFilter, "`") {
+			excludeFilterReg, err := regexp2.Compile(excludeFilter, regexp2.None)
+			if err != nil {
+				return nil, fmt.Errorf("invalid excludeFilter regex: %w", err)
+			}
+			excludeFilterRegs = append(excludeFilterRegs, excludeFilterReg)
+		}
 	}
 
 	var filterRegs []*regexp2.Regexp
@@ -367,8 +374,9 @@ func NewProxiesParser(filter string, excludeFilter string, excludeType string, d
 		proxies := []C.Proxy{}
 		proxiesSet := map[string]struct{}{}
 		for _, filterReg := range filterRegs {
+		LOOP1:
 			for idx, mapping := range schema.Proxies {
-				if nil != excludeTypeArray && len(excludeTypeArray) > 0 {
+				if len(excludeTypeArray) > 0 {
 					mType, ok := mapping["type"]
 					if !ok {
 						continue
@@ -377,18 +385,11 @@ func NewProxiesParser(filter string, excludeFilter string, excludeType string, d
 					if !ok {
 						continue
 					}
-					flag := false
-					for i := range excludeTypeArray {
-						if strings.EqualFold(pType, excludeTypeArray[i]) {
-							flag = true
-							break
+					for _, excludeType := range excludeTypeArray {
+						if strings.EqualFold(pType, excludeType) {
+							continue LOOP1
 						}
-
 					}
-					if flag {
-						continue
-					}
-
 				}
 				mName, ok := mapping["name"]
 				if !ok {
@@ -398,9 +399,11 @@ func NewProxiesParser(filter string, excludeFilter string, excludeType string, d
 				if !ok {
 					continue
 				}
-				if len(excludeFilter) > 0 {
-					if mat, _ := excludeFilterReg.MatchString(name); mat {
-						continue
+				if len(excludeFilterRegs) > 0 {
+					for _, excludeFilterReg := range excludeFilterRegs {
+						if mat, _ := excludeFilterReg.MatchString(name); mat {
+							continue LOOP1
+						}
 					}
 				}
 				if len(filter) > 0 {

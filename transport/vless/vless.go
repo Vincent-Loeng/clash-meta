@@ -42,13 +42,17 @@ type DstAddr struct {
 
 // Client is vless connection generator
 type Client struct {
-	uuid   *uuid.UUID
+	uuid   uuid.UUID
 	Addons *Addons
 }
 
 // StreamConn return a Conn with net.Conn and DstAddr
 func (c *Client) StreamConn(conn net.Conn, dst *DstAddr) (net.Conn, error) {
 	return newConn(conn, c, dst)
+}
+
+func (c *Client) PacketConn(conn net.Conn, rAddr net.Addr) net.PacketConn {
+	return &PacketConn{conn, rAddr}
 }
 
 // NewClient return Client instance
@@ -59,7 +63,7 @@ func NewClient(uuidStr string, addons *Addons) (*Client, error) {
 	}
 
 	return &Client{
-		uuid:   &uid,
+		uuid:   uid,
 		Addons: addons,
 	}, nil
 }

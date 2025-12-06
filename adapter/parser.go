@@ -49,13 +49,7 @@ func ParseProxy(mapping map[string]any) (C.Proxy, error) {
 		}
 		proxy, err = outbound.NewHttp(*httpOption)
 	case "vmess":
-		vmessOption := &outbound.VmessOption{
-			HTTPOpts: outbound.HTTPOptions{
-				Method: "GET",
-				Path:   []string{"/"},
-			},
-		}
-
+		vmessOption := &outbound.VmessOption{}
 		err = decoder.Decode(mapping, vmessOption)
 		if err != nil {
 			break
@@ -152,6 +146,13 @@ func ParseProxy(mapping map[string]any) (C.Proxy, error) {
 			break
 		}
 		proxy, err = outbound.NewAnyTLS(*anytlsOption)
+	case "sudoku":
+		sudokuOption := &outbound.SudokuOption{}
+		err = decoder.Decode(mapping, sudokuOption)
+		if err != nil {
+			break
+		}
+		proxy, err = outbound.NewSudoku(*sudokuOption)
 	default:
 		return nil, fmt.Errorf("unsupport proxy type: %s", proxyType)
 	}

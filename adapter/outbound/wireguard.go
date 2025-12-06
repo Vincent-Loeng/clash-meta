@@ -87,15 +87,26 @@ type WireGuardPeerOption struct {
 }
 
 type AmneziaWGOption struct {
-	JC   int    `proxy:"jc"`
-	JMin int    `proxy:"jmin"`
-	JMax int    `proxy:"jmax"`
-	S1   int    `proxy:"s1"`
-	S2   int    `proxy:"s2"`
-	H1   uint32 `proxy:"h1"`
-	H2   uint32 `proxy:"h2"`
-	H3   uint32 `proxy:"h3"`
-	H4   uint32 `proxy:"h4"`
+	JC    int    `proxy:"jc,omitempty"`
+	JMin  int    `proxy:"jmin,omitempty"`
+	JMax  int    `proxy:"jmax,omitempty"`
+	S1    int    `proxy:"s1,omitempty"`
+	S2    int    `proxy:"s2,omitempty"`
+	S3    int    `proxy:"s3,omitempty"`    // AmneziaWG v1.5 and v2
+	S4    int    `proxy:"s4,omitempty"`    // AmneziaWG v1.5 and v2
+	H1    string `proxy:"h1,omitempty"`    // In AmneziaWG v1.x, it was uint32, but our WeaklyTypedInput can handle this situation
+	H2    string `proxy:"h2,omitempty"`    // In AmneziaWG v1.x, it was uint32, but our WeaklyTypedInput can handle this situation
+	H3    string `proxy:"h3,omitempty"`    // In AmneziaWG v1.x, it was uint32, but our WeaklyTypedInput can handle this situation
+	H4    string `proxy:"h4,omitempty"`    // In AmneziaWG v1.x, it was uint32, but our WeaklyTypedInput can handle this situation
+	I1    string `proxy:"i1,omitempty"`    // AmneziaWG v1.5 and v2
+	I2    string `proxy:"i2,omitempty"`    // AmneziaWG v1.5 and v2
+	I3    string `proxy:"i3,omitempty"`    // AmneziaWG v1.5 and v2
+	I4    string `proxy:"i4,omitempty"`    // AmneziaWG v1.5 and v2
+	I5    string `proxy:"i5,omitempty"`    // AmneziaWG v1.5 and v2
+	J1    string `proxy:"j1,omitempty"`    // AmneziaWG v1.5 only (removed in v2)
+	J2    string `proxy:"j2,omitempty"`    // AmneziaWG v1.5 only (removed in v2)
+	J3    string `proxy:"j3,omitempty"`    // AmneziaWG v1.5 only (removed in v2)
+	Itime int64  `proxy:"itime,omitempty"` // AmneziaWG v1.5 only (removed in v2)
 }
 
 type wgSingErrorHandler struct {
@@ -386,15 +397,66 @@ func (w *WireGuard) genIpcConf(ctx context.Context, updateOnly bool) (string, er
 	if !updateOnly {
 		ipcConf += "private_key=" + w.option.PrivateKey + "\n"
 		if w.option.AmneziaWGOption != nil {
-			ipcConf += "jc=" + strconv.Itoa(w.option.AmneziaWGOption.JC) + "\n"
-			ipcConf += "jmin=" + strconv.Itoa(w.option.AmneziaWGOption.JMin) + "\n"
-			ipcConf += "jmax=" + strconv.Itoa(w.option.AmneziaWGOption.JMax) + "\n"
-			ipcConf += "s1=" + strconv.Itoa(w.option.AmneziaWGOption.S1) + "\n"
-			ipcConf += "s2=" + strconv.Itoa(w.option.AmneziaWGOption.S2) + "\n"
-			ipcConf += "h1=" + strconv.FormatUint(uint64(w.option.AmneziaWGOption.H1), 10) + "\n"
-			ipcConf += "h2=" + strconv.FormatUint(uint64(w.option.AmneziaWGOption.H2), 10) + "\n"
-			ipcConf += "h3=" + strconv.FormatUint(uint64(w.option.AmneziaWGOption.H3), 10) + "\n"
-			ipcConf += "h4=" + strconv.FormatUint(uint64(w.option.AmneziaWGOption.H4), 10) + "\n"
+			if w.option.AmneziaWGOption.JC != 0 {
+				ipcConf += "jc=" + strconv.Itoa(w.option.AmneziaWGOption.JC) + "\n"
+			}
+			if w.option.AmneziaWGOption.JMin != 0 {
+				ipcConf += "jmin=" + strconv.Itoa(w.option.AmneziaWGOption.JMin) + "\n"
+			}
+			if w.option.AmneziaWGOption.JMax != 0 {
+				ipcConf += "jmax=" + strconv.Itoa(w.option.AmneziaWGOption.JMax) + "\n"
+			}
+			if w.option.AmneziaWGOption.S1 != 0 {
+				ipcConf += "s1=" + strconv.Itoa(w.option.AmneziaWGOption.S1) + "\n"
+			}
+			if w.option.AmneziaWGOption.S2 != 0 {
+				ipcConf += "s2=" + strconv.Itoa(w.option.AmneziaWGOption.S2) + "\n"
+			}
+			if w.option.AmneziaWGOption.S3 != 0 {
+				ipcConf += "s3=" + strconv.Itoa(w.option.AmneziaWGOption.S3) + "\n"
+			}
+			if w.option.AmneziaWGOption.S4 != 0 {
+				ipcConf += "s4=" + strconv.Itoa(w.option.AmneziaWGOption.S4) + "\n"
+			}
+			if w.option.AmneziaWGOption.H1 != "" {
+				ipcConf += "h1=" + w.option.AmneziaWGOption.H1 + "\n"
+			}
+			if w.option.AmneziaWGOption.H2 != "" {
+				ipcConf += "h2=" + w.option.AmneziaWGOption.H2 + "\n"
+			}
+			if w.option.AmneziaWGOption.H3 != "" {
+				ipcConf += "h3=" + w.option.AmneziaWGOption.H3 + "\n"
+			}
+			if w.option.AmneziaWGOption.H4 != "" {
+				ipcConf += "h4=" + w.option.AmneziaWGOption.H4 + "\n"
+			}
+			if w.option.AmneziaWGOption.I1 != "" {
+				ipcConf += "i1=" + w.option.AmneziaWGOption.I1 + "\n"
+			}
+			if w.option.AmneziaWGOption.I2 != "" {
+				ipcConf += "i2=" + w.option.AmneziaWGOption.I2 + "\n"
+			}
+			if w.option.AmneziaWGOption.I3 != "" {
+				ipcConf += "i3=" + w.option.AmneziaWGOption.I3 + "\n"
+			}
+			if w.option.AmneziaWGOption.I4 != "" {
+				ipcConf += "i4=" + w.option.AmneziaWGOption.I4 + "\n"
+			}
+			if w.option.AmneziaWGOption.I5 != "" {
+				ipcConf += "i5=" + w.option.AmneziaWGOption.I5 + "\n"
+			}
+			if w.option.AmneziaWGOption.J1 != "" {
+				ipcConf += "j1=" + w.option.AmneziaWGOption.J1 + "\n"
+			}
+			if w.option.AmneziaWGOption.J2 != "" {
+				ipcConf += "j2=" + w.option.AmneziaWGOption.J2 + "\n"
+			}
+			if w.option.AmneziaWGOption.J3 != "" {
+				ipcConf += "j3=" + w.option.AmneziaWGOption.J3 + "\n"
+			}
+			if w.option.AmneziaWGOption.Itime != 0 {
+				ipcConf += "itime=" + strconv.FormatInt(int64(w.option.AmneziaWGOption.Itime), 10) + "\n"
+			}
 		}
 	}
 	if len(w.option.Peers) > 0 {

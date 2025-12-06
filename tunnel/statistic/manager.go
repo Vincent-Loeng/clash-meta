@@ -5,37 +5,35 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
-
-	"github.com/puzpuzpuz/xsync/v3"
-	"github.com/shirou/gopsutil/v4/process"
+	"github.com/metacubex/mihomo/common/xsync"
+	"github.com/metacubex/mihomo/component/memory"
 )
 
 var DefaultManager *Manager
 
 func init() {
 	DefaultManager = &Manager{
-		connections:   xsync.NewMapOf[string, Tracker](),
 		uploadTemp:    atomic.NewInt64(0),
 		downloadTemp:  atomic.NewInt64(0),
 		uploadBlip:    atomic.NewInt64(0),
 		downloadBlip:  atomic.NewInt64(0),
 		uploadTotal:   atomic.NewInt64(0),
 		downloadTotal: atomic.NewInt64(0),
-		process:       &process.Process{Pid: int32(os.Getpid())},
+		pid:           int32(os.Getpid()),
 	}
 
 	go DefaultManager.handle()
 }
 
 type Manager struct {
-	connections   *xsync.MapOf[string, Tracker]
+	connections   xsync.Map[string, Tracker]
 	uploadTemp    atomic.Int64
 	downloadTemp  atomic.Int64
 	uploadBlip    atomic.Int64
 	downloadBlip  atomic.Int64
 	uploadTotal   atomic.Int64
 	downloadTotal atomic.Int64
-	process       *process.Process
+	pid           int32
 	memory        uint64
 }
 
@@ -94,7 +92,7 @@ func (m *Manager) Snapshot() *Snapshot {
 }
 
 func (m *Manager) updateMemory() {
-	stat, err := m.process.MemoryInfo()
+	stat, err := memory.GetMemoryInfo(m.pid)
 	if err != nil {
 		return
 	}

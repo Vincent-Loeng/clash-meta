@@ -31,7 +31,7 @@ import (
 	"github.com/metacubex/mihomo/component/updater"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
-	"github.com/metacubex/mihomo/constant/provider"
+	P "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/dns"
 	"github.com/metacubex/mihomo/listener"
 	authStore "github.com/metacubex/mihomo/listener/auth"
@@ -39,7 +39,7 @@ import (
 	"github.com/metacubex/mihomo/listener/inner"
 	"github.com/metacubex/mihomo/listener/tproxy"
 	"github.com/metacubex/mihomo/log"
-	"github.com/metacubex/mihomo/ntp"
+	"github.com/metacubex/mihomo/ntp/ntp"
 	"github.com/metacubex/mihomo/tunnel"
 )
 
@@ -231,6 +231,8 @@ func updateNTP(c *config.NTP) {
 			c.DialerProxy,
 			c.WriteToSystem,
 		)
+	} else {
+		ntp.ReCreateNTPService("", 0, "", false)
 	}
 }
 
@@ -238,20 +240,19 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 	if !c.Enable {
 		resolver.DefaultResolver = nil
 		resolver.DefaultHostMapper = nil
-		resolver.DefaultLocalServer = nil
+		resolver.DefaultService = nil
 		resolver.ProxyServerHostResolver = nil
 		resolver.DirectHostResolver = nil
-		dns.ReCreateServer("", nil, nil)
+		dns.ReCreateServer("", nil)
 		return
 	}
-	cfg := dns.Config{
+
+	ipv6 := c.IPv6 && generalIPv6
+	r := dns.NewResolver(dns.Config{
 		Main:                 c.NameServer,
 		Fallback:             c.Fallback,
-		IPv6:                 c.IPv6 && generalIPv6,
+		IPv6:                 ipv6,
 		IPv6Timeout:          c.IPv6Timeout,
-		EnhancedMode:         c.EnhancedMode,
-		Pool:                 c.FakeIPRange,
-		Hosts:                c.Hosts,
 		FallbackIPFilter:     c.FallbackIPFilter,
 		FallbackDomainFilter: c.FallbackDomainFilter,
 		Default:              c.DefaultNameserver,
@@ -260,19 +261,28 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 		DirectServer:         c.DirectNameServer,
 		DirectFollowPolicy:   c.DirectFollowPolicy,
 		CacheAlgorithm:       c.CacheAlgorithm,
-	}
-
-	r := dns.NewResolver(cfg)
-	m := dns.NewEnhancer(cfg)
+		CacheMaxSize:         c.CacheMaxSize,
+	})
+	m := dns.NewEnhancer(dns.EnhancerConfig{
+		IPv6:          ipv6,
+		EnhancedMode:  c.EnhancedMode,
+		FakeIPPool:    c.FakeIPPool,
+		FakeIPPool6:   c.FakeIPPool6,
+		FakeIPSkipper: c.FakeIPSkipper,
+		FakeIPTTL:     c.FakeIPTTL,
+		UseHosts:      c.UseHosts,
+	})
 
 	// reuse cache of old host mapper
 	if old := resolver.DefaultHostMapper; old != nil {
 		m.PatchFrom(old.(*dns.ResolverEnhancer))
 	}
 
+	s := dns.NewService(r.Resolver, m)
+
 	resolver.DefaultResolver = r
 	resolver.DefaultHostMapper = m
-	resolver.DefaultLocalServer = dns.NewLocalServer(r.Resolver, m)
+	resolver.DefaultService = s
 	resolver.UseSystemHosts = c.UseSystemHosts
 
 	if r.ProxyResolver.Invalid() {
@@ -287,25 +297,25 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 		resolver.DirectHostResolver = r.Resolver
 	}
 
-	dns.ReCreateServer(c.Listen, r.Resolver, m)
+	dns.ReCreateServer(c.Listen, s)
 }
 
 func updateHosts(tree *trie.DomainTrie[resolver.HostValue]) {
 	resolver.DefaultHosts = resolver.NewHosts(tree)
 }
 
-func updateProxies(proxies map[string]C.Proxy, providers map[string]provider.ProxyProvider) {
+func updateProxies(proxies map[string]C.Proxy, providers map[string]P.ProxyProvider) {
 	tunnel.UpdateProxies(proxies, providers)
 }
 
-func updateRules(rules []C.Rule, subRules map[string][]C.Rule, ruleProviders map[string]provider.RuleProvider) {
+func updateRules(rules []C.Rule, subRules map[string][]C.Rule, ruleProviders map[string]P.RuleProvider) {
 	tunnel.UpdateRules(rules, subRules, ruleProviders)
 }
 
-func loadProvider[P provider.Provider](providers map[string]P) {
-	load := func(pv P) {
+func loadProvider[T P.Provider](providers map[string]T) {
+	load := func(pv T) {
 		name := pv.Name()
-		if pv.VehicleType() == provider.Compatible {
+		if pv.VehicleType() == P.Compatible {
 			log.Infoln("Start initial compatible provider %s", name)
 		} else {
 			log.Infoln("Start initial provider %s", name)
@@ -313,11 +323,11 @@ func loadProvider[P provider.Provider](providers map[string]P) {
 
 		if err := pv.Initial(); err != nil {
 			switch pv.Type() {
-			case provider.Proxy:
+			case P.Proxy:
 				{
 					log.Errorln("initial proxy provider %s error: %v", name, err)
 				}
-			case provider.Rule:
+			case P.Rule:
 				{
 					log.Errorln("initial rule provider %s error: %v", name, err)
 				}
@@ -440,12 +450,7 @@ func patchSelectGroup(proxies map[string]C.Proxy) {
 		return
 	}
 
-	for name, proxy := range proxies {
-		outbound, ok := proxy.(C.Proxy)
-		if !ok {
-			continue
-		}
-
+	for name, outbound := range proxies {
 		selector, ok := outbound.Adapter().(outboundgroup.SelectAble)
 		if !ok {
 			continue

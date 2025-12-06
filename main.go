@@ -14,7 +14,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/metacubex/mihomo/component/generater"
+	"github.com/metacubex/mihomo/component/generator"
 	"github.com/metacubex/mihomo/component/geodata"
 	"github.com/metacubex/mihomo/component/updater"
 	"github.com/metacubex/mihomo/config"
@@ -62,7 +62,19 @@ func main() {
 	// Defensive programming: panic when code mistakenly calls net.DefaultResolver
 	net.DefaultResolver.PreferGo = true
 	net.DefaultResolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
-		panic("should never be called")
+		//panic("should never be called")
+		buf := make([]byte, 1024)
+		for {
+			n := runtime.Stack(buf, true)
+			if n < len(buf) {
+				buf = buf[:n]
+				break
+			}
+			buf = make([]byte, 2*len(buf))
+		}
+		fmt.Fprintf(os.Stderr, "panic: should never be called\n\n%s", buf) // always print all goroutine stack
+		os.Exit(2)
+		return nil, nil
 	}
 
 	_, _ = maxprocs.Set(maxprocs.Logger(func(string, ...any) {}))
@@ -73,7 +85,7 @@ func main() {
 	}
 
 	if len(os.Args) > 1 && os.Args[1] == "generate" {
-		generater.Main(os.Args[2:])
+		generator.Main(os.Args[2:])
 		return
 	}
 

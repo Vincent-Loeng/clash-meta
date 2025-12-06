@@ -3,14 +3,10 @@ package outbound
 import (
 	"context"
 	"crypto/tls"
-	"encoding/binary"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
-	"sync"
 
 	"github.com/metacubex/mihomo/common/convert"
 	N "github.com/metacubex/mihomo/common/net"
@@ -23,6 +19,7 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/gun"
 	"github.com/metacubex/mihomo/transport/vless"
+	"github.com/metacubex/mihomo/transport/vless/encryption"
 	"github.com/metacubex/mihomo/transport/vmess"
 
 	vmessSing "github.com/metacubex/sing-vmess"
@@ -30,15 +27,12 @@ import (
 	M "github.com/metacubex/sing/common/metadata"
 )
 
-const (
-	// max packet length
-	maxLength = 1024 << 3
-)
-
 type Vless struct {
 	*Base
 	client *vless.Client
 	option *VlessOption
+
+	encryption *encryption.ClientInstance
 
 	// for gun mux
 	gunTLSConfig *tls.Config
@@ -62,6 +56,7 @@ type VlessOption struct {
 	PacketAddr        bool              `proxy:"packet-addr,omitempty"`
 	XUDP              bool              `proxy:"xudp,omitempty"`
 	PacketEncoding    string            `proxy:"packet-encoding,omitempty"`
+	Encryption        string            `proxy:"encryption,omitempty"`
 	Network           string            `proxy:"network,omitempty"`
 	ECHOpts           ECHOptions        `proxy:"ech-opts,omitempty"`
 	RealityOpts       RealityOptions    `proxy:"reality-opts,omitempty"`
@@ -69,10 +64,11 @@ type VlessOption struct {
 	HTTP2Opts         HTTP2Options      `proxy:"h2-opts,omitempty"`
 	GrpcOpts          GrpcOptions       `proxy:"grpc-opts,omitempty"`
 	WSOpts            WSOptions         `proxy:"ws-opts,omitempty"`
-	WSPath            string            `proxy:"ws-path,omitempty"`
 	WSHeaders         map[string]string `proxy:"ws-headers,omitempty"`
 	SkipCertVerify    bool              `proxy:"skip-cert-verify,omitempty"`
 	Fingerprint       string            `proxy:"fingerprint,omitempty"`
+	Certificate       string            `proxy:"certificate,omitempty"`
+	PrivateKey        string            `proxy:"private-key,omitempty"`
 	ServerName        string            `proxy:"servername,omitempty"`
 	ClientFingerprint string            `proxy:"client-fingerprint,omitempty"`
 }
@@ -101,14 +97,17 @@ func (v *Vless) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 		}
 		if v.option.TLS {
 			wsOpts.TLS = true
-			tlsConfig := &tls.Config{
-				MinVersion:         tls.VersionTLS12,
-				ServerName:         host,
-				InsecureSkipVerify: v.option.SkipCertVerify,
-				NextProtos:         []string{"http/1.1"},
-			}
-
-			wsOpts.TLSConfig, err = ca.GetSpecifiedFingerprintTLSConfig(tlsConfig, v.option.Fingerprint)
+			wsOpts.TLSConfig, err = ca.GetTLSConfig(ca.Option{
+				TLSConfig: &tls.Config{
+					MinVersion:         tls.VersionTLS12,
+					ServerName:         host,
+					InsecureSkipVerify: v.option.SkipCertVerify,
+					NextProtos:         []string{"http/1.1"},
+				},
+				Fingerprint: v.option.Fingerprint,
+				Certificate: v.option.Certificate,
+				PrivateKey:  v.option.PrivateKey,
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -173,6 +172,12 @@ func (v *Vless) streamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 		done := N.SetupContextForConn(ctx, c)
 		defer done(&err)
 	}
+	if v.encryption != nil {
+		c, err = v.encryption.Handshake(c)
+		if err != nil {
+			return
+		}
+	}
 	if metadata.NetWork == C.UDP {
 		if v.option.PacketAddr {
 			metadata = &C.Metadata{
@@ -188,9 +193,6 @@ func (v *Vless) streamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 			}
 		}
 		conn, err = v.client.StreamConn(c, parseVlessAddr(metadata, v.option.XUDP))
-		if v.option.PacketAddr {
-			conn = packetaddr.NewBindConn(conn)
-		}
 	} else {
 		conn, err = v.client.StreamConn(c, parseVlessAddr(metadata, false))
 	}
@@ -208,6 +210,8 @@ func (v *Vless) streamTLSConn(ctx context.Context, conn net.Conn, isH2 bool) (ne
 			Host:              host,
 			SkipCertVerify:    v.option.SkipCertVerify,
 			FingerPrint:       v.option.Fingerprint,
+			Certificate:       v.option.Certificate,
+			PrivateKey:        v.option.PrivateKey,
 			ClientFingerprint: v.option.ClientFingerprint,
 			ECH:               v.echConfig,
 			Reality:           v.realityConfig,
@@ -352,12 +356,11 @@ func (v *Vless) ListenPacketOnStreamConn(ctx context.Context, c net.Conn, metada
 		), v), nil
 	} else if v.option.PacketAddr {
 		return newPacketConn(N.NewThreadSafePacketConn(
-			packetaddr.NewConn(&vlessPacketConn{
-				Conn: c, rAddr: metadata.UDPAddr(),
-			}, M.SocksaddrFromNet(metadata.UDPAddr())),
+			packetaddr.NewConn(v.client.PacketConn(c, metadata.UDPAddr()),
+				M.SocksaddrFromNet(metadata.UDPAddr())),
 		), v), nil
 	}
-	return newPacketConn(N.NewThreadSafePacketConn(&vlessPacketConn{Conn: c, rAddr: metadata.UDPAddr()}), v), nil
+	return newPacketConn(N.NewThreadSafePacketConn(v.client.PacketConn(c, metadata.UDPAddr())), v), nil
 }
 
 // SupportUOT implements C.ProxyAdapter
@@ -408,101 +411,9 @@ func parseVlessAddr(metadata *C.Metadata, xudp bool) *vless.DstAddr {
 	}
 }
 
-type vlessPacketConn struct {
-	net.Conn
-	rAddr  net.Addr
-	remain int
-	mux    sync.Mutex
-	cache  [2]byte
-}
-
-func (c *vlessPacketConn) writePacket(payload []byte) (int, error) {
-	binary.BigEndian.PutUint16(c.cache[:], uint16(len(payload)))
-
-	if _, err := c.Conn.Write(c.cache[:]); err != nil {
-		return 0, err
-	}
-
-	return c.Conn.Write(payload)
-}
-
-func (c *vlessPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	total := len(b)
-	if total == 0 {
-		return 0, nil
-	}
-
-	if total <= maxLength {
-		return c.writePacket(b)
-	}
-
-	offset := 0
-
-	for offset < total {
-		cursor := offset + maxLength
-		if cursor > total {
-			cursor = total
-		}
-
-		n, err := c.writePacket(b[offset:cursor])
-		if err != nil {
-			return offset + n, err
-		}
-
-		offset = cursor
-		if offset == total {
-			break
-		}
-	}
-
-	return total, nil
-}
-
-func (c *vlessPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-
-	if c.remain > 0 {
-		length := len(b)
-		if c.remain < length {
-			length = c.remain
-		}
-
-		n, err := c.Conn.Read(b[:length])
-		if err != nil {
-			return 0, c.rAddr, err
-		}
-
-		c.remain -= n
-		return n, c.rAddr, nil
-	}
-
-	if _, err := c.Conn.Read(b[:2]); err != nil {
-		return 0, c.rAddr, err
-	}
-
-	total := int(binary.BigEndian.Uint16(b[:2]))
-	if total == 0 {
-		return 0, c.rAddr, nil
-	}
-
-	length := len(b)
-	if length > total {
-		length = total
-	}
-
-	if _, err := io.ReadFull(c.Conn, b[:length]); err != nil {
-		return 0, c.rAddr, errors.New("read packet error")
-	}
-
-	c.remain = total - length
-
-	return length, c.rAddr, nil
-}
-
 func NewVless(option VlessOption) (*Vless, error) {
 	var addons *vless.Addons
-	if option.Network != "ws" && len(option.Flow) >= 16 {
+	if len(option.Flow) >= 16 {
 		option.Flow = option.Flow[:16]
 		if option.Flow != vless.XRV {
 			return nil, fmt.Errorf("unsupported xtls flow type: %s", option.Flow)
@@ -547,6 +458,11 @@ func NewVless(option VlessOption) (*Vless, error) {
 		option: &option,
 	}
 
+	v.encryption, err = encryption.NewClient(option.Encryption)
+	if err != nil {
+		return nil, err
+	}
+
 	v.realityConfig, err = v.option.RealityOpts.Parse()
 	if err != nil {
 		return nil, err
@@ -589,10 +505,15 @@ func NewVless(option VlessOption) (*Vless, error) {
 		}
 		var tlsConfig *tls.Config
 		if option.TLS {
-			tlsConfig, err = ca.GetSpecifiedFingerprintTLSConfig(&tls.Config{
-				InsecureSkipVerify: v.option.SkipCertVerify,
-				ServerName:         v.option.ServerName,
-			}, v.option.Fingerprint)
+			tlsConfig, err = ca.GetTLSConfig(ca.Option{
+				TLSConfig: &tls.Config{
+					InsecureSkipVerify: v.option.SkipCertVerify,
+					ServerName:         v.option.ServerName,
+				},
+				Fingerprint: v.option.Fingerprint,
+				Certificate: v.option.Certificate,
+				PrivateKey:  v.option.PrivateKey,
+			})
 			if err != nil {
 				return nil, err
 			}

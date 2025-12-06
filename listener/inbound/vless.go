@@ -12,10 +12,13 @@ import (
 type VlessOption struct {
 	BaseOption
 	Users           []VlessUser   `inbound:"users"`
+	Decryption      string        `inbound:"decryption,omitempty"`
 	WsPath          string        `inbound:"ws-path,omitempty"`
 	GrpcServiceName string        `inbound:"grpc-service-name,omitempty"`
 	Certificate     string        `inbound:"certificate,omitempty"`
 	PrivateKey      string        `inbound:"private-key,omitempty"`
+	ClientAuthType  string        `inbound:"client-auth-type,omitempty"`
+	ClientAuthCert  string        `inbound:"client-auth-cert,omitempty"`
 	EchKey          string        `inbound:"ech-key,omitempty"`
 	RealityConfig   RealityConfig `inbound:"reality-config,omitempty"`
 	MuxOption       MuxOption     `inbound:"mux-option,omitempty"`
@@ -58,10 +61,13 @@ func NewVless(options *VlessOption) (*Vless, error) {
 			Enable:          true,
 			Listen:          base.RawAddress(),
 			Users:           users,
+			Decryption:      options.Decryption,
 			WsPath:          options.WsPath,
 			GrpcServiceName: options.GrpcServiceName,
 			Certificate:     options.Certificate,
 			PrivateKey:      options.PrivateKey,
+			ClientAuthType:  options.ClientAuthType,
+			ClientAuthCert:  options.ClientAuthCert,
 			EchKey:          options.EchKey,
 			RealityConfig:   options.RealityConfig.Build(),
 			MuxOption:       options.MuxOption.Build(),

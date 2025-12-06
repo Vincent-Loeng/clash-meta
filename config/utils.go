@@ -4,18 +4,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
+	"os"
+	"strconv"
 
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/common/structure"
 )
-
-func trimArr(arr []string) (r []string) {
-	for _, e := range arr {
-		r = append(r, strings.Trim(e, " "))
-	}
-	return
-}
 
 // Check if ProxyGroups form DAG(Directed Acyclic Graph), and sort all ProxyGroups by dependency order.
 // Meanwhile, record the original index in the config file.
@@ -150,6 +144,9 @@ func proxyGroupsDagSort(groupsConfig []map[string]any) error {
 }
 
 func verifyIP6() bool {
+	if skip, _ := strconv.ParseBool(os.Getenv("SKIP_SYSTEM_IPV6_CHECK")); skip {
+		return true
+	}
 	if iAddrs, err := net.InterfaceAddrs(); err == nil {
 		for _, addr := range iAddrs {
 			if prefix, err := netip.ParsePrefix(addr.String()); err == nil {
@@ -158,6 +155,10 @@ func verifyIP6() bool {
 				}
 			}
 		}
+	} else {
+		// eg: Calling net.InterfaceAddrs() fails on Android SDK 30
+		// https://github.com/golang/go/issues/40569
+		return true // just ignore
 	}
 	return false
 }

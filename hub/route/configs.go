@@ -7,12 +7,13 @@ import (
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/process"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/component/updater"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
-	P "github.com/metacubex/mihomo/listener"
+	"github.com/metacubex/mihomo/listener"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel"
@@ -33,28 +34,29 @@ func configRouter() http.Handler {
 }
 
 type configSchema struct {
-	Port              *int               `json:"port"`
-	SocksPort         *int               `json:"socks-port"`
-	RedirPort         *int               `json:"redir-port"`
-	TProxyPort        *int               `json:"tproxy-port"`
-	MixedPort         *int               `json:"mixed-port"`
-	Tun               *tunSchema         `json:"tun"`
-	TuicServer        *tuicServerSchema  `json:"tuic-server"`
-	ShadowSocksConfig *string            `json:"ss-config"`
-	VmessConfig       *string            `json:"vmess-config"`
-	TcptunConfig      *string            `json:"tcptun-config"`
-	UdptunConfig      *string            `json:"udptun-config"`
-	AllowLan          *bool              `json:"allow-lan"`
-	SkipAuthPrefixes  *[]netip.Prefix    `json:"skip-auth-prefixes"`
-	LanAllowedIPs     *[]netip.Prefix    `json:"lan-allowed-ips"`
-	LanDisAllowedIPs  *[]netip.Prefix    `json:"lan-disallowed-ips"`
-	BindAddress       *string            `json:"bind-address"`
-	Mode              *tunnel.TunnelMode `json:"mode"`
-	LogLevel          *log.LogLevel      `json:"log-level"`
-	IPv6              *bool              `json:"ipv6"`
-	Sniffing          *bool              `json:"sniffing"`
-	TcpConcurrent     *bool              `json:"tcp-concurrent"`
-	InterfaceName     *string            `json:"interface-name"`
+	Port              *int                     `json:"port"`
+	SocksPort         *int                     `json:"socks-port"`
+	RedirPort         *int                     `json:"redir-port"`
+	TProxyPort        *int                     `json:"tproxy-port"`
+	MixedPort         *int                     `json:"mixed-port"`
+	Tun               *tunSchema               `json:"tun"`
+	TuicServer        *tuicServerSchema        `json:"tuic-server"`
+	ShadowSocksConfig *string                  `json:"ss-config"`
+	VmessConfig       *string                  `json:"vmess-config"`
+	TcptunConfig      *string                  `json:"tcptun-config"`
+	UdptunConfig      *string                  `json:"udptun-config"`
+	AllowLan          *bool                    `json:"allow-lan"`
+	SkipAuthPrefixes  *[]netip.Prefix          `json:"skip-auth-prefixes"`
+	LanAllowedIPs     *[]netip.Prefix          `json:"lan-allowed-ips"`
+	LanDisAllowedIPs  *[]netip.Prefix          `json:"lan-disallowed-ips"`
+	BindAddress       *string                  `json:"bind-address"`
+	Mode              *tunnel.TunnelMode       `json:"mode"`
+	LogLevel          *log.LogLevel            `json:"log-level"`
+	IPv6              *bool                    `json:"ipv6"`
+	Sniffing          *bool                    `json:"sniffing"`
+	TcpConcurrent     *bool                    `json:"tcp-concurrent"`
+	FindProcessMode   *process.FindProcessMode `json:"find-process-mode"`
+	InterfaceName     *string                  `json:"interface-name"`
 }
 
 type tunSchema struct {
@@ -75,6 +77,7 @@ type tunSchema struct {
 	AutoRedirect           *bool           `yaml:"auto-redirect" json:"auto-redirect,omitempty"`
 	AutoRedirectInputMark  *uint32         `yaml:"auto-redirect-input-mark" json:"auto-redirect-input-mark,omitempty"`
 	AutoRedirectOutputMark *uint32         `yaml:"auto-redirect-output-mark" json:"auto-redirect-output-mark,omitempty"`
+	LoopbackAddress        *[]netip.Addr   `yaml:"loopback-address" json:"loopback-address,omitempty"`
 	StrictRoute            *bool           `yaml:"strict-route" json:"strict-route,omitempty"`
 	RouteAddress           *[]netip.Prefix `yaml:"route-address" json:"route-address,omitempty"`
 	RouteAddressSet        *[]string       `yaml:"route-address-set" json:"route-address-set,omitempty"`
@@ -97,6 +100,10 @@ type tunSchema struct {
 	Inet6RouteAddress        *[]netip.Prefix `yaml:"inet6-route-address" json:"inet6-route-address,omitempty"`
 	Inet4RouteExcludeAddress *[]netip.Prefix `yaml:"inet4-route-exclude-address" json:"inet4-route-exclude-address,omitempty"`
 	Inet6RouteExcludeAddress *[]netip.Prefix `yaml:"inet6-route-exclude-address" json:"inet6-route-exclude-address,omitempty"`
+
+	// darwin special config
+	RecvMsgX *bool `yaml:"recvmsgx" json:"recvmsgx,omitempty"`
+	SendMsgX *bool `yaml:"sendmsgx" json:"sendmsgx,omitempty"`
 }
 
 type tuicServerSchema struct {
@@ -174,6 +181,9 @@ func pointerOrDefaultTun(p *tunSchema, def LC.Tun) LC.Tun {
 		if p.AutoRedirectOutputMark != nil {
 			def.AutoRedirectOutputMark = *p.AutoRedirectOutputMark
 		}
+		if p.LoopbackAddress != nil {
+			def.LoopbackAddress = *p.LoopbackAddress
+		}
 		if p.StrictRoute != nil {
 			def.StrictRoute = *p.StrictRoute
 		}
@@ -237,6 +247,12 @@ func pointerOrDefaultTun(p *tunSchema, def LC.Tun) LC.Tun {
 		if p.FileDescriptor != nil {
 			def.FileDescriptor = *p.FileDescriptor
 		}
+		if p.RecvMsgX != nil {
+			def.RecvMsgX = *p.RecvMsgX
+		}
+		if p.SendMsgX != nil {
+			def.SendMsgX = *p.SendMsgX
+		}
 	}
 	return def
 }
@@ -290,7 +306,7 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if general.AllowLan != nil {
-		P.SetAllowLan(*general.AllowLan)
+		listener.SetAllowLan(*general.AllowLan)
 	}
 
 	if general.SkipAuthPrefixes != nil {
@@ -306,7 +322,7 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if general.BindAddress != nil {
-		P.SetBindAddress(*general.BindAddress)
+		listener.SetBindAddress(*general.BindAddress)
 	}
 
 	if general.Sniffing != nil {
@@ -321,20 +337,24 @@ func patchConfigs(w http.ResponseWriter, r *http.Request) {
 		dialer.DefaultInterface.Store(*general.InterfaceName)
 	}
 
-	ports := P.GetPorts()
+	ports := listener.GetPorts()
 
-	P.ReCreateHTTP(pointerOrDefault(general.Port, ports.Port), tunnel.Tunnel)
-	P.ReCreateSocks(pointerOrDefault(general.SocksPort, ports.SocksPort), tunnel.Tunnel)
-	P.ReCreateRedir(pointerOrDefault(general.RedirPort, ports.RedirPort), tunnel.Tunnel)
-	P.ReCreateTProxy(pointerOrDefault(general.TProxyPort, ports.TProxyPort), tunnel.Tunnel)
-	P.ReCreateMixed(pointerOrDefault(general.MixedPort, ports.MixedPort), tunnel.Tunnel)
-	P.ReCreateTun(pointerOrDefaultTun(general.Tun, P.LastTunConf), tunnel.Tunnel)
-	P.ReCreateShadowSocks(pointerOrDefault(general.ShadowSocksConfig, ports.ShadowSocksConfig), tunnel.Tunnel)
-	P.ReCreateVmess(pointerOrDefault(general.VmessConfig, ports.VmessConfig), tunnel.Tunnel)
-	P.ReCreateTuic(pointerOrDefaultTuicServer(general.TuicServer, P.LastTuicConf), tunnel.Tunnel)
+	listener.ReCreateHTTP(pointerOrDefault(general.Port, ports.Port), tunnel.Tunnel)
+	listener.ReCreateSocks(pointerOrDefault(general.SocksPort, ports.SocksPort), tunnel.Tunnel)
+	listener.ReCreateRedir(pointerOrDefault(general.RedirPort, ports.RedirPort), tunnel.Tunnel)
+	listener.ReCreateTProxy(pointerOrDefault(general.TProxyPort, ports.TProxyPort), tunnel.Tunnel)
+	listener.ReCreateMixed(pointerOrDefault(general.MixedPort, ports.MixedPort), tunnel.Tunnel)
+	listener.ReCreateTun(pointerOrDefaultTun(general.Tun, listener.LastTunConf), tunnel.Tunnel)
+	listener.ReCreateShadowSocks(pointerOrDefault(general.ShadowSocksConfig, ports.ShadowSocksConfig), tunnel.Tunnel)
+	listener.ReCreateVmess(pointerOrDefault(general.VmessConfig, ports.VmessConfig), tunnel.Tunnel)
+	listener.ReCreateTuic(pointerOrDefaultTuicServer(general.TuicServer, listener.LastTuicConf), tunnel.Tunnel)
 
 	if general.Mode != nil {
 		tunnel.SetMode(*general.Mode)
+	}
+
+	if general.FindProcessMode != nil {
+		tunnel.SetFindProcessMode(*general.FindProcessMode)
 	}
 
 	if general.LogLevel != nil {

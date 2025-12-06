@@ -20,6 +20,7 @@ import (
 )
 
 type Conn = utls.Conn
+type LimitFallback = utls.RealityLimitFallback
 
 type Config struct {
 	Dest              string
@@ -28,6 +29,9 @@ type Config struct {
 	ServerNames       []string
 	MaxTimeDifference int
 	Proxy             string
+
+	LimitFallbackUpload   LimitFallback
+	LimitFallbackDownload LimitFallback
 }
 
 func (c Config) Build(tunnel C.Tunnel) (*Builder, error) {
@@ -73,6 +77,9 @@ func (c Config) Build(tunnel C.Tunnel) (*Builder, error) {
 		return inner.HandleTcp(tunnel, address, c.Proxy)
 	}
 
+	realityConfig.LimitFallbackUpload = c.LimitFallbackUpload
+	realityConfig.LimitFallbackDownload = c.LimitFallbackDownload
+
 	return &Builder{realityConfig}, nil
 }
 
@@ -105,4 +112,12 @@ func (c realityConnWrapper) Upstream() any {
 
 func (c realityConnWrapper) CloseWrite() error {
 	return c.Close()
+}
+
+func (c realityConnWrapper) ReaderReplaceable() bool {
+	return true
+}
+
+func (c realityConnWrapper) WriterReplaceable() bool {
+	return true
 }

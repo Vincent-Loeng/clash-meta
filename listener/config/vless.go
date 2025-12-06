@@ -17,10 +17,13 @@ type VlessServer struct {
 	Enable          bool
 	Listen          string
 	Users           []VlessUser
+	Decryption      string
 	WsPath          string
 	GrpcServiceName string
 	Certificate     string
 	PrivateKey      string
+	ClientAuthType  string
+	ClientAuthCert  string
 	EchKey          string
 	RealityConfig   reality.Config
 	MuxOption       sing.MuxOption `yaml:"mux-option" json:"mux-option,omitempty"`
