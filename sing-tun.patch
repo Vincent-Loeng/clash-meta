@@ -58,10 +58,10 @@ index fdcc548..4e38fd9 100644
  			if HasNextAddress(o.Inet6Address[0], 1) {
 diff --git a/tun_freebsd.go b/tun_freebsd.go
 new file mode 100644
-index 0000000..6f60688
+index 0000000..1100a6f
 --- /dev/null
 +++ b/tun_freebsd.go
-@@ -0,0 +1,619 @@
+@@ -0,0 +1,621 @@
 +package tun
 +
 +import (
@@ -159,9 +159,11 @@ index 0000000..6f60688
 +				}
 +			}
 +
-+			resolvString, err = setDNSServers(options)
-+			if err != nil {
-+				return nil, E.Errors(err, tunFile.Close(), destoryTun(options.Name))
++			if !options.EXP_DisableDNSHijack {
++				resolvString, err = setDNSServers(options)
++				if err != nil {
++					return nil, E.Errors(err, tunFile.Close(), destoryTun(options.Name))
++				}
 +			}
 +		}
 +
@@ -225,7 +227,7 @@ index 0000000..6f60688
 +}
 +
 +func (t *NativeTun) Close() error {
-+	if t.options.AutoRoute {
++	if t.options.AutoRoute && !t.options.EXP_DisableDNSHijack {
 +		return E.Errors(restoreDNSServers(t.tunResolv), t.tunFile.Close(), destoryTun(t.tunName))
 +	}
 +	return E.Errors(t.tunFile.Close(), destoryTun(t.tunName))
