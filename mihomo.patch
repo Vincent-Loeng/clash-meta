@@ -2,16 +2,29 @@ diff --git a/component/process/process_freebsd_amd64.go b/component/process/proc
 similarity index 90%
 rename from component/process/process_freebsd_amd64.go
 rename to component/process/process_freebsd.go
-index a6d00c8e..a7ca5c76 100644
+index a6d00c8e..21094aac 100644
 --- a/component/process/process_freebsd_amd64.go
 +++ b/component/process/process_freebsd.go
-@@ -177,23 +177,9 @@ func (s *searcher) searchSocketPid(socket uint64) (uint32, error) {
+@@ -177,23 +177,22 @@ func (s *searcher) searchSocketPid(socket uint64) (uint32, error) {
  	return 0, ErrNotFound
  }
  
 -func newSearcher(major int) *searcher {
 +func newSearcher(major int, machine string) *searcher {
  	var s *searcher
++	var vflag int
++	switch machine {
++	case "i386":
++		vflag = 388
++	case "amd64":
++		fallthrough
++	case "arm64":
++		fallthrough
++	case "riscv":
++		vflag = 392
++	default:
++		return nil
++	}
  	switch major {
 -	case 11:
 -		s = &searcher{
@@ -30,21 +43,7 @@ index a6d00c8e..a7ca5c76 100644
  	case 12:
  		fallthrough
  	case 13:
-@@ -201,13 +187,21 @@ func newSearcher(major int) *searcher {
- 	case 14:
- 		fallthrough
- 	case 15:
-+		var vflag int
-+		if machine == "i386" {
-+			vflag = 388
-+		} else if machine == "amd64" || machine == "arm64" {
-+			vflag = 392
-+		} else {
-+			return nil
-+		}
- 		s = &searcher{
- 			headSize:     64,
- 			tcpItemSize:  744,
+@@ -207,7 +206,7 @@ func newSearcher(major int) *searcher {
  			udpItemSize:  400,
  			port:         254,
  			ip:           284,
@@ -53,7 +52,7 @@ index a6d00c8e..a7ca5c76 100644
  			socket:       16,
  			fileItemSize: 128,
  			data:         56,
-@@ -222,6 +216,10 @@ func initSearcher() error {
+@@ -222,6 +221,10 @@ func initSearcher() error {
  	if err != nil {
  		return err
  	}
@@ -64,7 +63,7 @@ index a6d00c8e..a7ca5c76 100644
  
  	dot := strings.Index(osRelease, ".")
  	if dot != -1 {
-@@ -231,9 +229,9 @@ func initSearcher() error {
+@@ -231,9 +234,9 @@ func initSearcher() error {
  	if err != nil {
  		return err
  	}
@@ -109,10 +108,10 @@ index 0e262329..235f8736 100644
  		return false
  	}
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
-index 87f413d4..54d8d7b1 100644
+index 41ba895b..4adad61f 100644
 --- a/listener/sing_tun/server.go
 +++ b/listener/sing_tun/server.go
-@@ -189,6 +189,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -197,6 +197,10 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  	if ruleIndex == 0 {
  		ruleIndex = tun.DefaultIPRoute2RuleIndex
  	}
@@ -123,7 +122,7 @@ index 87f413d4..54d8d7b1 100644
  	inputMark := options.AutoRedirectInputMark
  	if inputMark == 0 {
  		inputMark = tun.DefaultAutoRedirectInputMark
-@@ -347,6 +351,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
+@@ -357,6 +361,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
  		AutoRoute:                options.AutoRoute,
  		IPRoute2TableIndex:       tableIndex,
  		IPRoute2RuleIndex:        ruleIndex,
