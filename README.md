@@ -10,6 +10,8 @@
 
 # mihomo for FreeBSD (with tun support)
 
+![build workflow](https://github.com/Vincent-Loeng/mihomo/actions/workflows/run.yml/badge.svg)
+
 Automatically build the latest version with patches
 
 自动使用补丁构建最新的版本
