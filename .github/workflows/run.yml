@@ -76,7 +76,7 @@ jobs:
         run: |
           cd mihomo
           os_array=(freebsd)
-          arch_array=(riscv64 amd64 386 arm64 arm)
+          arch_array=(riscv64 amd64 386 arm64)
           for os in ${os_array[@]}; do
             for arch in ${arch_array[@]}; do
               GOOS=${os} GOARCH=${arch} CGO_ENABLED=0 go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${{ env.RELEASE_NAME }}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
