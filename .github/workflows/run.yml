@@ -11,7 +11,7 @@ on:
       - "**/README.md"
 
 jobs:
-  build:
+  delete:
     runs-on: ubuntu-latest
     steps:
       - name: Delete old workflow runs
@@ -19,6 +19,21 @@ jobs:
         with:
           retain_days: 3
           keep_minimum_runs: 6
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { os: freebsd, arch: riscv64 }
+          - { os: freebsd, arch: amd64}
+          - { os: freebsd, arch: 386 }
+          - { os: freebsd, arch: arm64}
+    outputs:
+      new: ${{ steps.check.outputs.new }}
+      version: ${{ steps.check.outputs.version }}
+
+    steps:
 
       - name: Set variables
         run: |
@@ -34,23 +49,7 @@ jobs:
         with:
           ref: hidden
 
-      - name: Check for new version
-        run: |
-          if [ -f last_version ]; then
-            LAST_VERSION=$(cat last_version)
-          else
-            LAST_VERSION="none"
-          fi
-          echo "Last version: ${LAST_VERSION}, current version: ${{ env.version }}"
-          if [ "${{ env.version }}" != "${LAST_VERSION}" ]; then
-            echo "${{ env.version }}" > last_version
-            echo "BUILD=true" >> $GITHUB_ENV
-          else
-            echo "BUILD=false" >> $GITHUB_ENV
-          fi
-
       - name: Apply patches
-        if: ${{ env.BUILD == 'true' }}
         run: |
           git clone --depth 1 https://github.com/MetaCubeX/sing-tun.git sing-tun
           git clone --depth 1 -b Meta https://github.com/MetaCubeX/mihomo.git mihomo
@@ -65,34 +64,52 @@ jobs:
           echo -e "\nreplace github.com/metacubex/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
           git_head=$(git rev-parse --short HEAD)
 
+      - name: Check for new version
+        id: check
+        run: |
+          if [ -f last_version ]; then
+            LAST_VERSION=$(cat last_version)
+          else
+            LAST_VERSION="none"
+          fi
+          echo "Last version: ${LAST_VERSION}, current version: ${{ env.version }}"
+          if [ "${{ env.version }}" != "${LAST_VERSION}" ]; then
+            echo "${{ env.version }}" > last_version
+            echo "new=true" >> $GITHUB_ENV
+            echo "new=true" >> $GITHUB_OUTPUT
+          else
+            echo "new=false" >> $GITHUB_ENV
+            echo "new=false" >> $GITHUB_OUTPUT
+          fi
+          echo "version=${version}" >> $GITHUB_OUTPUT
+
       - name: Setup Go
-        if: ${{ env.BUILD == 'true' }}
+        if: github.event_name != 'schedule' || env.new == 'true'
         uses: actions/setup-go@v6
         with:
           go-version: 'stable'
 
-      - name: Build binary files
-        if: ${{ env.BUILD == 'true' }}
+      - name: Build binary file
+        if: github.event_name != 'schedule' || env.new == 'true'
         run: |
           cd mihomo
-          os_array=(freebsd)
-          arch_array=(riscv64 amd64 386 arm64)
-          for os in ${os_array[@]}; do
-            for arch in ${arch_array[@]}; do
-              GOOS=${os} GOARCH=${arch} CGO_ENABLED=0 go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${{ env.RELEASE_NAME }}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
-              mv mihomo mihomo-${os}-${arch}
-              xz -v mihomo-${os}-${arch}
-            done
-          done
+          go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${{ env.RELEASE_NAME }}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
+          mv mihomo mihomo-${{ matrix.os }}-${{ matrix.arch }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
 
-      - name: Move files to publish directory
-        if: ${{ env.BUILD == 'true' }}
+      - name: Compress and move file to publish directory
+        if: github.event_name != 'schedule' || env.new == 'true'
         run: |
-          mkdir -p publish
-          cp mihomo/mihomo-* ./publish/
+          cd mihomo
+          xz -v mihomo-${{ matrix.os }}-${{ matrix.arch }}
+          mkdir -p ../publish
+          cp -v mihomo-* ../publish/
 
       - name: Release and upload assets
-        if: ${{ env.BUILD == 'true' }}
+        if: github.event_name == 'schedule' && env.new == 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ env.RELEASE_NAME }}
@@ -104,13 +121,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  push:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' && needs.build.outputs.new == 'true'
+    needs:
+      - build
+    steps:
+      - name: Checkout the "hidden" branch
+        uses: actions/checkout@v6
+        with:
+          ref: hidden
+
+      - name: Update last_version
+        run: |
+          echo "${{ needs.build.outputs.version }}" > last_version
+
       - name: Push last_version to "hidden" branch
-        if: ${{ env.BUILD == 'true' }}
         run: |
           git config --local user.name "Vincent Loeng"
           git config --local user.email "173226116+Vincent-Loeng@users.noreply.github.com"
           git add last_version
-          git commit -m "Release ${{ env.RELEASE_NAME }}"
+          git commit -m "Release ${{ needs.build.outputs.version }}"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
