@@ -42,6 +42,6 @@ Please refer to the given [template](template.yaml)
 
    在 pfSense/OPNsense 上使用`system`栈时，请允许数据包通过'
 
-3. The support for riscv64 is experimental
+3. The support for `riscv64` is experimental
 
-   riscv64 支持目前仍处于实验阶段
+   对`riscv64`支持仍处于实验阶段
