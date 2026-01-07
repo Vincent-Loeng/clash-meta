@@ -16,7 +16,10 @@ Automatically build the latest version with patches
 
 自动使用补丁构建最新的版本
 
-## Another tool 另一工具 [**sing-box for FreeBSD/OpenBSD**](https://github.com/Vincent-Loeng/sing-box)
+## Other tools 其他工具
+
+1. [**sing-box for FreeBSD/OpenBSD**](https://github.com/Vincent-Loeng/sing-box)
+2. [**NaïveProxy for FreeBSD**](https://github.com/Vincent-Loeng/naiveproxy)
 
 ## Enhancements 增强功能
 
