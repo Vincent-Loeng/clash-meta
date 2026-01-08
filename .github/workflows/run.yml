@@ -25,16 +25,17 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: freebsd, arch: riscv64 }
-          - { os: freebsd, arch: amd64}
-          - { os: freebsd, arch: 386 }
-          - { os: freebsd, arch: arm64}
+          - { goos: freebsd, goarch: riscv64 }
+          - { goos: freebsd, goarch: amd64 }
+          - { goos: freebsd, goarch: 386 }
+          - { goos: freebsd, goarch: arm, goarm: 6 }
+          - { goos: freebsd, goarch: arm, goarm: 7 }
+          - { goos: freebsd, goarch: arm64 }
     outputs:
       new: ${{ steps.check.outputs.new }}
       version: ${{ steps.check.outputs.version }}
 
     steps:
-
       - name: Set variables
         run: |
           latest_version=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name' | sed 's|v||g')
@@ -87,7 +88,7 @@ jobs:
         if: github.event_name != 'schedule' || env.new == 'true'
         uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - name: Cache go dependencies
         if: github.event_name != 'schedule' || env.new == 'true'
@@ -103,24 +104,33 @@ jobs:
         with:
           path: |
             ~/.cache/go-build
-          key: go-${{ hashFiles('**/go.sum') }}-${{ matrix.os }}-${{ matrix.arch }}
+          key: go-${{ hashFiles('**/go.sum') }}-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - name: Build binary file
         if: github.event_name != 'schedule' || env.new == 'true'
         run: |
           cd mihomo
           go build -v -tags ${tags} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${{ env.RELEASE_NAME }}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
-          mv mihomo mihomo-${{ matrix.os }}-${{ matrix.arch }}
+          if [ "${{ matrix.goarch }}" == 'arm' ]; then
+            mv mihomo mihomo-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
+          else
+            mv mihomo mihomo-${{ matrix.goos }}-${{ matrix.goarch }}
+          fi
         env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
 
       - name: Compress and move file to publish directory
-        if: github.event_name == 'schedule' && env.new == 'true'
+        if: github.event_name != 'schedule' || env.new == 'true'
         run: |
           cd mihomo
-          xz -v mihomo-${{ matrix.os }}-${{ matrix.arch }}
+          if [ "${{ matrix.goarch }}" == 'arm' ]; then
+            xz -v mihomo-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
+          else
+            xz -v mihomo-${{ matrix.goos }}-${{ matrix.goarch }}
+          fi
           mkdir -p ../publish
           cp -v mihomo-* ../publish/
 
