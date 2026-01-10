@@ -107,6 +107,33 @@ index 0e262329..235f8736 100644
  	if t.AutoRedirect != other.AutoRedirect {
  		return false
  	}
+diff --git a/listener/listener.go b/listener/listener.go
+index 37bcbebf..ec81afdc 100644
+--- a/listener/listener.go
++++ b/listener/listener.go
+@@ -3,6 +3,7 @@ package listener
+ import (
+ 	"fmt"
+ 	"net"
++	"runtime"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -234,9 +235,11 @@ func ReCreateRedir(port int, tunnel C.Tunnel) {
+ 		return
+ 	}
+ 
+-	redirUDPListener, err = tproxy.NewUDP(addr, tunnel)
+-	if err != nil {
+-		log.Warnln("Failed to start Redir UDP Listener: %s", err)
++	if runtime.GOOS == "linux" {
++		redirUDPListener, err = tproxy.NewUDP(addr, tunnel)
++		if err != nil {
++			log.Warnln("Failed to start Redir UDP Listener: %s", err)
++		}
+ 	}
+ 
+ 	log.Infoln("Redirect proxy listening at: %s", redirListener.Address())
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
 index 41ba895b..4adad61f 100644
 --- a/listener/sing_tun/server.go
