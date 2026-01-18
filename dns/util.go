@@ -5,15 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/metacubex/mihomo/common/picker"
+	"github.com/metacubex/mihomo/component/ech/echparser"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/log"
 
 	D "github.com/miekg/dns"
 	"github.com/samber/lo"
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -107,37 +110,75 @@ func transform(servers []NameServer, resolver *Resolver) []dnsClient {
 		}
 
 		c = warpClientWithEdns0Subnet(c, s.Params)
-
-		if s.Params["disable-ipv4"] == "true" {
-			c = warpClientWithDisableType(c, D.TypeA)
-		}
-
-		if s.Params["disable-ipv6"] == "true" {
-			c = warpClientWithDisableType(c, D.TypeAAAA)
-		}
+		c = warpClientWithDisableTypes(c, s.Params)
 
 		ret = append(ret, c)
 	}
 	return ret
 }
 
-type clientWithDisableType struct {
+type clientWithDisableTypes struct {
 	dnsClient
-	qType uint16
+	disableTypes map[uint16]struct{}
 }
 
-func (c clientWithDisableType) ExchangeContext(ctx context.Context, m *D.Msg) (msg *D.Msg, err error) {
-	if len(m.Question) > 0 {
-		q := m.Question[0]
-		if q.Qtype == c.qType {
-			return handleMsgWithEmptyAnswer(m), nil
+func (c clientWithDisableTypes) ExchangeContext(ctx context.Context, m *D.Msg) (msg *D.Msg, err error) {
+	// filter dns request
+	if slices.ContainsFunc(m.Question, c.inQuestion) {
+		// In fact, DNS requests are not allowed to contain multiple questions:
+		// https://stackoverflow.com/questions/4082081/requesting-a-and-aaaa-records-in-single-dns-query/4083071
+		// so, when we find a question containing the type, we can simply discard the entire dns request.
+		return handleMsgWithEmptyAnswer(m), nil
+	}
+
+	// do real exchange
+	msg, err = c.dnsClient.ExchangeContext(ctx, m)
+	if err != nil {
+		return
+	}
+
+	// filter dns response
+	msg.Answer = slices.DeleteFunc(msg.Answer, c.inRR)
+	msg.Ns = slices.DeleteFunc(msg.Ns, c.inRR)
+	msg.Extra = slices.DeleteFunc(msg.Extra, c.inRR)
+	return
+}
+
+func (c clientWithDisableTypes) inQuestion(q D.Question) bool {
+	_, ok := c.disableTypes[q.Qtype]
+	return ok
+}
+
+func (c clientWithDisableTypes) inRR(rr D.RR) bool {
+	_, ok := c.disableTypes[rr.Header().Rrtype]
+	return ok
+}
+
+func warpClientWithDisableTypes(c dnsClient, params map[string]string) dnsClient {
+	disableTypes := make(map[uint16]struct{})
+	if params["disable-ipv4"] == "true" {
+		disableTypes[D.TypeA] = struct{}{}
+	}
+	if params["disable-ipv6"] == "true" {
+		disableTypes[D.TypeAAAA] = struct{}{}
+	}
+	for key, value := range params {
+		const prefix = "disable-qtype-"
+		if strings.HasPrefix(key, prefix) && value == "true" { // eg: disable-qtype-65=true
+			qType, err := strconv.ParseUint(key[len(prefix):], 10, 16)
+			if err != nil {
+				continue
+			}
+			if _, ok := D.TypeToRR[uint16(qType)]; !ok { // check valid RR_Header.Rrtype and Question.qtype
+				continue
+			}
+			disableTypes[uint16(qType)] = struct{}{}
 		}
 	}
-	return c.dnsClient.ExchangeContext(ctx, m)
-}
-
-func warpClientWithDisableType(c dnsClient, qType uint16) dnsClient {
-	return clientWithDisableType{c, qType}
+	if len(disableTypes) > 0 {
+		return clientWithDisableTypes{c, disableTypes}
+	}
+	return c
 }
 
 type clientWithEdns0Subnet struct {
@@ -226,6 +267,81 @@ func msgToQtype(msg *D.Msg) (uint16, string) {
 	return 0, ""
 }
 
+func msgToHTTPSRRInfo(msg *D.Msg) string {
+	var alpns []string
+	var publicName string
+	var hasIPv4, hasIPv6 bool
+
+	collect := func(rrs []D.RR) {
+		for _, rr := range rrs {
+			httpsRR, ok := rr.(*D.HTTPS)
+			if !ok {
+				continue
+			}
+
+			for _, kv := range httpsRR.Value {
+				switch v := kv.(type) {
+				case *D.SVCBAlpn:
+					if len(alpns) == 0 && len(v.Alpn) > 0 {
+						alpns = append(alpns, v.Alpn...)
+					}
+				case *D.SVCBIPv4Hint:
+					if len(v.Hint) > 0 {
+						hasIPv4 = true
+					}
+				case *D.SVCBIPv6Hint:
+					if len(v.Hint) > 0 {
+						hasIPv6 = true
+					}
+				case *D.SVCBECHConfig:
+					if publicName == "" && len(v.ECH) > 0 {
+						if cfgs, err := echparser.ParseECHConfigList(v.ECH); err == nil && len(cfgs) > 0 {
+							publicName = string(cfgs[0].PublicName)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	collect(msg.Answer)
+
+	//TODO: Do we need to process the data in msg.Extra?
+	//      If so, do we need to validate whether the domain names within it match our request?
+	//      To simplify the problem, let's ignore it for now.
+	//collect(msg.Extra)
+
+	if len(alpns) == 0 && publicName == "" && !hasIPv4 && !hasIPv6 {
+		return ""
+	}
+
+	var parts []string
+	if len(alpns) > 0 {
+		parts = append(parts, "alpn:"+strings.Join(alpns, ","))
+	}
+	if publicName != "" {
+		parts = append(parts, "pn:"+publicName)
+	}
+	if hasIPv4 {
+		parts = append(parts, "ipv4hint")
+	}
+	if hasIPv6 {
+		parts = append(parts, "ipv6hint")
+	}
+
+	return strings.Join(parts, ";")
+}
+
+func msgToLogString(msg *D.Msg) string {
+	qType, qTypeStr := msgToQtype(msg)
+	switch qType {
+	case D.TypeHTTPS:
+		return fmt.Sprintf("[%s] %s", msgToHTTPSRRInfo(msg), qTypeStr)
+	default:
+		return fmt.Sprintf("%s %s", msgToIP(msg), qTypeStr)
+	}
+}
+
 func batchExchange(ctx context.Context, clients []dnsClient, m *D.Msg) (msg *D.Msg, cache bool, err error) {
 	cache = true
 	fast, ctx := picker.WithTimeout[*D.Msg](ctx, resolver.DefaultDNSTimeout)
@@ -248,8 +364,7 @@ func batchExchange(ctx context.Context, clients []dnsClient, m *D.Msg) (msg *D.M
 				// so we would ignore RCode errors from RCode clients.
 				return nil, errors.New("server failure: " + D.RcodeToString[m.Rcode])
 			}
-			ips := msgToIP(m)
-			log.Debugln("[DNS] %s --> %s %s from %s", domain, ips, qTypeStr, client.Address())
+			log.Debugln("[DNS] %s --> %s from %s", domain, msgToLogString(m), client.Address())
 			return m, nil
 		})
 	}

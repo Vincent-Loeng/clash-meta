@@ -16,6 +16,7 @@ import (
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/adapter/provider"
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/common/yaml"
 	"github.com/metacubex/mihomo/component/auth"
 	"github.com/metacubex/mihomo/component/cidr"
 	"github.com/metacubex/mihomo/component/fakeip"
@@ -34,11 +35,11 @@ import (
 	R "github.com/metacubex/mihomo/rules"
 	RC "github.com/metacubex/mihomo/rules/common"
 	RP "github.com/metacubex/mihomo/rules/provider"
+	RW "github.com/metacubex/mihomo/rules/wrapper"
 	T "github.com/metacubex/mihomo/tunnel"
 
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"golang.org/x/exp/slices"
-	"gopkg.in/yaml.v3"
 )
 
 // General config
@@ -1083,6 +1084,10 @@ func parseRules(rulesConfig []string, proxies map[string]C.Proxy, ruleProviders 
 			}
 		}
 
+		if format == "rules" { // only wrap top level rules
+			parsed = RW.NewRuleWrapper(parsed)
+		}
+
 		rules = append(rules, parsed)
 	}
 
@@ -1292,7 +1297,7 @@ func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], rulePro
 		}
 		kLower := strings.ToLower(k)
 		if strings.Contains(kLower, ",") {
-			if strings.Contains(kLower, "geosite:") {
+			if strings.HasPrefix(kLower, "geosite:") {
 				subkeys := strings.Split(k, ":")
 				subkeys = subkeys[1:]
 				subkeys = strings.Split(subkeys[0], ",")
@@ -1300,7 +1305,7 @@ func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], rulePro
 					newKey := "geosite:" + subkey
 					policy = append(policy, dns.Policy{Domain: newKey, NameServers: nameservers})
 				}
-			} else if strings.Contains(kLower, "rule-set:") {
+			} else if strings.HasPrefix(kLower, "rule-set:") {
 				subkeys := strings.Split(k, ":")
 				subkeys = subkeys[1:]
 				subkeys = strings.Split(subkeys[0], ",")
@@ -1315,9 +1320,9 @@ func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], rulePro
 				}
 			}
 		} else {
-			if strings.Contains(kLower, "geosite:") {
+			if strings.HasPrefix(kLower, "geosite:") {
 				policy = append(policy, dns.Policy{Domain: "geosite:" + k[8:], NameServers: nameservers})
-			} else if strings.Contains(kLower, "rule-set:") {
+			} else if strings.HasPrefix(kLower, "rule-set:") {
 				policy = append(policy, dns.Policy{Domain: "rule-set:" + k[9:], NameServers: nameservers})
 			} else {
 				policy = append(policy, dns.Policy{Domain: k, NameServers: nameservers})
@@ -1450,16 +1455,22 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 			}
 		}
 
-		// fake ip skip host filter
-		host, err := parseDomain(cfg.FakeIPFilter, fakeIPTrie, "dns.fake-ip-filter", ruleProviders)
-		if err != nil {
-			return nil, err
+		skipper := &fakeip.Skipper{Mode: cfg.FakeIPFilterMode}
+
+		if cfg.FakeIPFilterMode == C.FilterRule {
+			rules, err := parseFakeIPRules(cfg.FakeIPFilter, ruleProviders)
+			if err != nil {
+				return nil, err
+			}
+			skipper.Rules = rules
+		} else {
+			host, err := parseDomain(cfg.FakeIPFilter, fakeIPTrie, "dns.fake-ip-filter", ruleProviders)
+			if err != nil {
+				return nil, err
+			}
+			skipper.Host = host
 		}
 
-		skipper := &fakeip.Skipper{
-			Host: host,
-			Mode: cfg.FakeIPFilterMode,
-		}
 		dnsCfg.FakeIPSkipper = skipper
 		dnsCfg.FakeIPTTL = cfg.FakeIPTTL
 
@@ -1539,6 +1550,55 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 	}
 
 	return dnsCfg, nil
+}
+
+func parseFakeIPRules(rawRules []string, ruleProviders map[string]P.RuleProvider) ([]C.Rule, error) {
+	var rules []C.Rule
+
+	for idx, line := range rawRules {
+		tp, payload, action, params := RC.ParseRulePayload(line, true)
+
+		action = strings.ToLower(action)
+		if action != fakeip.UseFakeIP && action != fakeip.UseRealIP {
+			return nil, fmt.Errorf("dns.fake-ip-filter[%d] [%s] error: invalid action '%s', must be 'fake-ip' or 'real-ip'", idx, line, action)
+		}
+
+		if tp == "RULE-SET" {
+			if rp, ok := ruleProviders[payload]; !ok {
+				return nil, fmt.Errorf("dns.fake-ip-filter[%d] [%s] error: rule-set '%s' not found", idx, line, payload)
+			} else {
+				switch rp.Behavior() {
+				case P.IPCIDR:
+					return nil, fmt.Errorf("dns.fake-ip-filter[%d] [%s] error: rule-set behavior is %s, must be domain or classical", idx, line, rp.Behavior())
+				case P.Classical:
+					log.Warnln("%s provider is %s, only matching domain rules in fake-ip-filter", rp.Name(), rp.Behavior())
+				default:
+				}
+			}
+		}
+
+		parsed, err := R.ParseRule(tp, payload, action, params, nil)
+		if err != nil {
+			return nil, fmt.Errorf("dns.fake-ip-filter[%d] [%s] error: %w", idx, line, err)
+		}
+
+		if !isDomainRule(parsed.RuleType()) && parsed.RuleType() != C.MATCH {
+			return nil, fmt.Errorf("dns.fake-ip-filter[%d] [%s] error: rule type '%s' not supported, only domain-based rules allowed", idx, line, tp)
+		}
+
+		rules = append(rules, parsed)
+	}
+
+	return rules, nil
+}
+
+func isDomainRule(rt C.RuleType) bool {
+	switch rt {
+	case C.Domain, C.DomainSuffix, C.DomainKeyword, C.DomainRegex, C.DomainWildcard, C.GEOSITE, C.RuleSet:
+		return true
+	default:
+		return false
+	}
 }
 
 func parseAuthentication(rawRecords []string) []auth.AuthUser {
@@ -1712,7 +1772,7 @@ func parseSniffer(snifferRaw RawSniffer, ruleProviders map[string]P.RuleProvider
 	}
 	snifferConfig.SkipSrcAddress = skipSrcAddress
 
-	skipDstAddress, err := parseIPCIDR(snifferRaw.SkipDstAddress, nil, "sniffer.skip-src-address", ruleProviders)
+	skipDstAddress, err := parseIPCIDR(snifferRaw.SkipDstAddress, nil, "sniffer.skip-dst-address", ruleProviders)
 	if err != nil {
 		return nil, fmt.Errorf("error in skip-dst-address, error:%w", err)
 	}
@@ -1731,7 +1791,7 @@ func parseIPCIDR(addresses []string, cidrSet *cidr.IpCidrSet, adapterName string
 	var matcher C.IpMatcher
 	for _, ipcidr := range addresses {
 		ipcidrLower := strings.ToLower(ipcidr)
-		if strings.Contains(ipcidrLower, "geoip:") {
+		if strings.HasPrefix(ipcidrLower, "geoip:") {
 			subkeys := strings.Split(ipcidr, ":")
 			subkeys = subkeys[1:]
 			subkeys = strings.Split(subkeys[0], ",")
@@ -1742,7 +1802,7 @@ func parseIPCIDR(addresses []string, cidrSet *cidr.IpCidrSet, adapterName string
 				}
 				matchers = append(matchers, matcher)
 			}
-		} else if strings.Contains(ipcidrLower, "rule-set:") {
+		} else if strings.HasPrefix(ipcidrLower, "rule-set:") {
 			subkeys := strings.Split(ipcidr, ":")
 			subkeys = subkeys[1:]
 			subkeys = strings.Split(subkeys[0], ",")
@@ -1778,7 +1838,7 @@ func parseDomain(domains []string, domainTrie *trie.DomainTrie[struct{}], adapte
 	var matcher C.DomainMatcher
 	for _, domain := range domains {
 		domainLower := strings.ToLower(domain)
-		if strings.Contains(domainLower, "geosite:") {
+		if strings.HasPrefix(domainLower, "geosite:") {
 			subkeys := strings.Split(domain, ":")
 			subkeys = subkeys[1:]
 			subkeys = strings.Split(subkeys[0], ",")
@@ -1789,7 +1849,7 @@ func parseDomain(domains []string, domainTrie *trie.DomainTrie[struct{}], adapte
 				}
 				matchers = append(matchers, matcher)
 			}
-		} else if strings.Contains(domainLower, "rule-set:") {
+		} else if strings.HasPrefix(domainLower, "rule-set:") {
 			subkeys := strings.Split(domain, ":")
 			subkeys = subkeys[1:]
 			subkeys = strings.Split(subkeys[0], ",")

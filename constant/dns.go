@@ -86,18 +86,24 @@ func (d DNSPrefer) String() string {
 	}
 }
 
-func NewDNSPrefer(prefer string) DNSPrefer {
-	if p, ok := dnsPreferMap[prefer]; ok {
-		return p
-	} else {
-		return DualStack
+func (d DNSPrefer) MarshalText() ([]byte, error) {
+	return []byte(d.String()), nil
+}
+
+func (d *DNSPrefer) UnmarshalText(data []byte) error {
+	p, exist := dnsPreferMap[strings.ToLower(string(data))]
+	if !exist {
+		p = DualStack
 	}
+	*d = p
+	return nil
 }
 
 // FilterModeMapping is a mapping for FilterMode enum
 var FilterModeMapping = map[string]FilterMode{
 	FilterBlackList.String(): FilterBlackList,
 	FilterWhiteList.String(): FilterWhiteList,
+	FilterRule.String():      FilterRule,
 }
 
 type FilterMode int
@@ -105,6 +111,7 @@ type FilterMode int
 const (
 	FilterBlackList FilterMode = iota
 	FilterWhiteList
+	FilterRule
 )
 
 func (e FilterMode) String() string {
@@ -113,6 +120,8 @@ func (e FilterMode) String() string {
 		return "blacklist"
 	case FilterWhiteList:
 		return "whitelist"
+	case FilterRule:
+		return "rule"
 	default:
 		return "unknown"
 	}

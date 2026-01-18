@@ -8,8 +8,6 @@ import (
 
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/structure"
-	"github.com/metacubex/mihomo/component/dialer"
-	"github.com/metacubex/mihomo/component/proxydialer"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/ntp"
 	gost "github.com/metacubex/mihomo/transport/gost-plugin"
@@ -116,6 +114,7 @@ type kcpTunOption struct {
 	AutoExpire   int    `obfs:"autoexpire,omitempty"`
 	ScavengeTTL  int    `obfs:"scavengettl,omitempty"`
 	MTU          int    `obfs:"mtu,omitempty"`
+	RateLimit    int    `obfs:"ratelimit,omitempty"`
 	SndWnd       int    `obfs:"sndwnd,omitempty"`
 	RcvWnd       int    `obfs:"rcvwnd,omitempty"`
 	DataShard    int    `obfs:"datashard,omitempty"`
@@ -130,6 +129,7 @@ type kcpTunOption struct {
 	SockBuf      int    `obfs:"sockbuf,omitempty"`
 	SmuxVer      int    `obfs:"smuxver,omitempty"`
 	SmuxBuf      int    `obfs:"smuxbuf,omitempty"`
+	FrameSize    int    `obfs:"framesize,omitempty"`
 	StreamBuf    int    `obfs:"streambuf,omitempty"`
 	KeepAlive    int    `obfs:"keepalive,omitempty"`
 }
@@ -191,17 +191,6 @@ func (ss *ShadowSocks) StreamConnContext(ctx context.Context, c net.Conn, metada
 
 // DialContext implements C.ProxyAdapter
 func (ss *ShadowSocks) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
-	return ss.DialContextWithDialer(ctx, dialer.NewDialer(ss.DialOptions()...), metadata)
-}
-
-// DialContextWithDialer implements C.ProxyAdapter
-func (ss *ShadowSocks) DialContextWithDialer(ctx context.Context, dialer C.Dialer, metadata *C.Metadata) (_ C.Conn, err error) {
-	if len(ss.option.DialerProxy) > 0 {
-		dialer, err = proxydialer.NewByName(ss.option.DialerProxy, dialer)
-		if err != nil {
-			return nil, err
-		}
-	}
 	var c net.Conn
 	if ss.kcptunClient != nil {
 		c, err = ss.kcptunClient.OpenStream(ctx, func(ctx context.Context) (net.PacketConn, net.Addr, error) {
@@ -213,7 +202,7 @@ func (ss *ShadowSocks) DialContextWithDialer(ctx context.Context, dialer C.Diale
 				return nil, nil, err
 			}
 
-			pc, err := dialer.ListenPacket(ctx, "udp", "", addr.AddrPort())
+			pc, err := ss.dialer.ListenPacket(ctx, "udp", "", addr.AddrPort())
 			if err != nil {
 				return nil, nil, err
 			}
@@ -221,7 +210,7 @@ func (ss *ShadowSocks) DialContextWithDialer(ctx context.Context, dialer C.Diale
 			return pc, addr, nil
 		})
 	} else {
-		c, err = dialer.DialContext(ctx, "tcp", ss.addr)
+		c, err = ss.dialer.DialContext(ctx, "tcp", ss.addr)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %w", ss.addr, err)
@@ -237,25 +226,14 @@ func (ss *ShadowSocks) DialContextWithDialer(ctx context.Context, dialer C.Diale
 
 // ListenPacketContext implements C.ProxyAdapter
 func (ss *ShadowSocks) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (C.PacketConn, error) {
-	return ss.ListenPacketWithDialer(ctx, dialer.NewDialer(ss.DialOptions()...), metadata)
-}
-
-// ListenPacketWithDialer implements C.ProxyAdapter
-func (ss *ShadowSocks) ListenPacketWithDialer(ctx context.Context, dialer C.Dialer, metadata *C.Metadata) (_ C.PacketConn, err error) {
 	if ss.option.UDPOverTCP {
-		tcpConn, err := ss.DialContextWithDialer(ctx, dialer, metadata)
+		tcpConn, err := ss.DialContext(ctx, metadata)
 		if err != nil {
 			return nil, err
 		}
 		return ss.ListenPacketOnStreamConn(ctx, tcpConn, metadata)
 	}
-	if len(ss.option.DialerProxy) > 0 {
-		dialer, err = proxydialer.NewByName(ss.option.DialerProxy, dialer)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err = ss.ResolveUDP(ctx, metadata); err != nil {
+	if err := ss.ResolveUDP(ctx, metadata); err != nil {
 		return nil, err
 	}
 	addr, err := resolveUDPAddr(ctx, "udp", ss.addr, ss.prefer)
@@ -263,17 +241,12 @@ func (ss *ShadowSocks) ListenPacketWithDialer(ctx context.Context, dialer C.Dial
 		return nil, err
 	}
 
-	pc, err := dialer.ListenPacket(ctx, "udp", "", addr.AddrPort())
+	pc, err := ss.dialer.ListenPacket(ctx, "udp", "", addr.AddrPort())
 	if err != nil {
 		return nil, err
 	}
 	pc = ss.method.DialPacketConn(bufio.NewBindPacketConn(pc, addr))
 	return newPacketConn(pc, ss), nil
-}
-
-// SupportWithDialer implements C.ProxyAdapter
-func (ss *ShadowSocks) SupportWithDialer() C.NetWork {
-	return C.ALLNet
 }
 
 // ProxyInfo implements C.ProxyAdapter
@@ -455,6 +428,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 			AutoExpire:   kcptunOpt.AutoExpire,
 			ScavengeTTL:  kcptunOpt.ScavengeTTL,
 			MTU:          kcptunOpt.MTU,
+			RateLimit:    kcptunOpt.RateLimit,
 			SndWnd:       kcptunOpt.SndWnd,
 			RcvWnd:       kcptunOpt.RcvWnd,
 			DataShard:    kcptunOpt.DataShard,
@@ -469,6 +443,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 			SockBuf:      kcptunOpt.SockBuf,
 			SmuxVer:      kcptunOpt.SmuxVer,
 			SmuxBuf:      kcptunOpt.SmuxBuf,
+			FrameSize:    kcptunOpt.FrameSize,
 			StreamBuf:    kcptunOpt.StreamBuf,
 			KeepAlive:    kcptunOpt.KeepAlive,
 		})
@@ -482,17 +457,18 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		return nil, fmt.Errorf("ss %s unknown udp over tcp protocol version: %d", addr, option.UDPOverTCPVersion)
 	}
 
-	return &ShadowSocks{
+	outbound := &ShadowSocks{
 		Base: &Base{
 			name:   option.Name,
 			addr:   addr,
 			tp:     C.Shadowsocks,
+			pdName: option.ProviderName,
 			udp:    option.UDP,
 			tfo:    option.TFO,
 			mpTcp:  option.MPTCP,
 			iface:  option.Interface,
 			rmark:  option.RoutingMark,
-			prefer: C.NewDNSPrefer(option.IPVersion),
+			prefer: option.IPVersion,
 		},
 		method: method,
 
@@ -504,5 +480,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		shadowTLSOption: shadowTLSOpt,
 		restlsConfig:    restlsConfig,
 		kcptunClient:    kcptunClient,
-	}, nil
+	}
+	outbound.dialer = option.NewDialer(outbound.DialOptions())
+	return outbound, nil
 }
