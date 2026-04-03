@@ -112,7 +112,7 @@ jobs:
         with:
           path: |
             ~/.cache/go-build
-          key: go-${{ hashFiles('**/go.sum') }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          key: go-${{ hashFiles('**/go.sum') }}-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.goarm }}
 
       - name: Build binary file
         if: github.event_name != 'schedule' || env.new == 'true'
