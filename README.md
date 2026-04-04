@@ -12,7 +12,7 @@
 
 ![build workflow](https://github.com/Vincent-Loeng/clash-meta/actions/workflows/run.yml/badge.svg)
 
-This ***self-use repo*** utomatically build the latest version with patches
+This ***self-use repo*** automatically build the latest version with patches
 
 此***自用仓库***自动使用补丁构建最新的版本
 
