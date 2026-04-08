@@ -114,6 +114,9 @@ func (c *Config) GetNormalizedScMaxEachPostBytes() (Range, error) {
 	if err != nil {
 		return Range{}, fmt.Errorf("invalid sc-max-each-post-bytes: %w", err)
 	}
+	if r.Max == 0 {
+		return Range{}, fmt.Errorf("invalid sc-max-each-post-bytes: must be greater than zero")
+	}
 	return r, nil
 }
 

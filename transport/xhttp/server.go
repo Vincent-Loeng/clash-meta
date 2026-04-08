@@ -110,9 +110,6 @@ func NewServerHandler(opt ServerOption) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	if scMaxEachPostBytes.Max == 0 { // default to 1MB
-		scMaxEachPostBytes.Max = 1000000
-	}
 	scStreamUpServerSecs, err := opt.Config.GetNormalizedScStreamUpServerSecs()
 	if err != nil {
 		return nil, err

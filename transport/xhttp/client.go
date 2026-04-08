@@ -136,9 +136,6 @@ func NewClient(cfg *Config, makeTransport TransportMaker, makeDownloadTransport 
 	if err != nil {
 		return nil, err
 	}
-	if scMaxEachPostBytes.Max == 0 { // default to 1MB
-		scMaxEachPostBytes.Max = 1000000
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &Client{
