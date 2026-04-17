@@ -46,6 +46,10 @@ Please refer to the given [template](template.yaml)
 
    在 pfSense/OPNsense 上使用`system`栈时，请允许数据包通过'
 
-3. The support for `riscv64` is experimental
+3. Please add port forwarding rules when using `redirect` (higher performance)
+
+   使用 `redirect`（性能更好）时，请添加端口转发规则
+
+4. The support for `riscv64` is experimental
 
    对`riscv64`支持仍处于实验阶段
