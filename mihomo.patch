@@ -134,6 +134,135 @@ index 37bcbebf..cb74ea97 100644
  	}
  
  	log.Infoln("Redirect proxy listening at: %s", redirListener.Address())
+diff --git a/listener/redir/tcp_freebsd.go b/listener/redir/tcp_freebsd.go
+index 9eb199f0..0a3199a3 100644
+--- a/listener/redir/tcp_freebsd.go
++++ b/listener/redir/tcp_freebsd.go
+@@ -5,62 +5,87 @@ import (
+ 	"errors"
+ 	"net"
+ 	"net/netip"
++	"os"
+ 	"syscall"
+ 	"unsafe"
+ 
+ 	"github.com/metacubex/mihomo/transport/socks5"
+-
+-	"golang.org/x/sys/unix"
+ )
+ 
+ const (
+-	SO_ORIGINAL_DST      = 80 // from linux/include/uapi/linux/netfilter_ipv4.h
+-	IP6T_SO_ORIGINAL_DST = 80 // from linux/include/uapi/linux/netfilter_ipv6/ip6_tables.h
++	PF_IN       = 0x1        // contrib/tcpdump/pflog.h
++	PF_OUT      = 0x2        // contrib/tcpdump/pflog.h
++	DIOCNATLOOK = 0xc04c4417 // sys/net/pfvar.h
+ )
+ 
+ func parserPacket(conn net.Conn) (socks5.Addr, error) {
+-	c, ok := conn.(*net.TCPConn)
++	_, ok := conn.(*net.TCPConn)
+ 	if !ok {
+ 		return nil, errors.New("only work with TCP connection")
+ 	}
+ 
+-	rc, err := c.SyscallConn()
+-	if err != nil {
+-		return nil, err
+-	}
+-
+-	var addr netip.AddrPort
+-
+-	rc.Control(func(fd uintptr) {
+-		if ip4 := c.LocalAddr().(*net.TCPAddr).IP.To4(); ip4 != nil {
+-			addr, err = getorigdst(fd)
++	_, err := os.Stat("/dev/pf")
++	if errors.Is(err, os.ErrNotExist) {
++		// ipfw
++		la := conn.LocalAddr().(*net.TCPAddr)
++		var ip net.IP
++		if la.IP.To4() != nil {
++			ip = make(net.IP, net.IPv4len)
++			copy(ip, la.IP[net.IPv6len-net.IPv4len:])
+ 		} else {
+-			addr, err = getorigdst6(fd)
++			ip = make(net.IP, net.IPv6len)
++			copy(ip, la.IP[:])
+ 		}
+-	})
++		addr, _ := netip.AddrFromSlice(ip)
++		return socks5.AddrFromStdAddrPort(netip.AddrPortFrom(addr, uint16(la.Port))), nil
++	}
+ 
+-	return socks5.AddrFromStdAddrPort(addr), err
+-}
++	// pf
++	fd, err := syscall.Open("/dev/pf", 0, syscall.O_RDWR)
++	if err != nil {
++		return nil, err
++	}
++	defer syscall.Close(fd)
+ 
+-// Call getorigdst() from linux/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4.c
+-func getorigdst(fd uintptr) (netip.AddrPort, error) {
+-	addr := unix.RawSockaddrInet4{}
+-	size := uint32(unsafe.Sizeof(addr))
+-	_, _, err := syscall.Syscall6(syscall.SYS_GETSOCKOPT, fd, syscall.IPPROTO_IP, SO_ORIGINAL_DST, uintptr(unsafe.Pointer(&addr)), uintptr(unsafe.Pointer(&size)), 0)
+-	if err != 0 {
+-		return netip.AddrPort{}, err
++	nl := struct {
++		saddr, daddr, rsaddr, rdaddr [16]byte
++		sport, dport, rsport, rdport [2]byte
++		af, proto, direction         uint8
++	}{
++		af:        syscall.AF_INET,
++		proto:     syscall.IPPROTO_TCP,
++		direction: PF_OUT,
++	}
++	la := conn.LocalAddr().(*net.TCPAddr)
++	ra := conn.RemoteAddr().(*net.TCPAddr)
++	raIP, laIP := ra.IP, la.IP
++	raPort, laPort := ra.Port, la.Port
++	switch {
++	case raIP.To4() != nil:
++		copy(nl.saddr[:net.IPv4len], raIP.To4())
++		copy(nl.daddr[:net.IPv4len], laIP.To4())
++		nl.af = syscall.AF_INET
++	default:
++		copy(nl.saddr[:], raIP.To16())
++		copy(nl.daddr[:], laIP.To16())
++		nl.af = syscall.AF_INET6
++	}
++	binary.BigEndian.PutUint16(nl.sport[:], uint16(raPort))
++	binary.BigEndian.PutUint16(nl.dport[:], uint16(laPort))
++	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), DIOCNATLOOK, uintptr(unsafe.Pointer(&nl))); errno != 0 {
++		return nil, errno
+ 	}
+-	port := binary.BigEndian.Uint16((*(*[2]byte)(unsafe.Pointer(&addr.Port)))[:])
+-	return netip.AddrPortFrom(netip.AddrFrom4(addr.Addr), port), nil
+-}
+ 
+-func getorigdst6(fd uintptr) (netip.AddrPort, error) {
+-	addr := unix.RawSockaddrInet6{}
+-	size := uint32(unsafe.Sizeof(addr))
+-	_, _, err := syscall.Syscall6(syscall.SYS_GETSOCKOPT, fd, syscall.IPPROTO_IPV6, IP6T_SO_ORIGINAL_DST, uintptr(unsafe.Pointer(&addr)), uintptr(unsafe.Pointer(&size)), 0)
+-	if err != 0 {
+-		return netip.AddrPort{}, err
++	var ip net.IP
++	switch nl.af {
++	case syscall.AF_INET:
++		ip = make(net.IP, net.IPv4len)
++		copy(ip, nl.rdaddr[:net.IPv4len])
++	case syscall.AF_INET6:
++		ip = make(net.IP, net.IPv6len)
++		copy(ip, nl.rdaddr[:])
+ 	}
+-	port := binary.BigEndian.Uint16((*(*[2]byte)(unsafe.Pointer(&addr.Port)))[:])
+-	return netip.AddrPortFrom(netip.AddrFrom16(addr.Addr), port), nil
++	port := binary.BigEndian.Uint16(nl.rdport[:])
++	addr, _ := netip.AddrFromSlice(ip)
++	return socks5.AddrFromStdAddrPort(netip.AddrPortFrom(addr, port)), nil
+ }
 diff --git a/listener/sing_tun/server.go b/listener/sing_tun/server.go
 index 56369945..cdd6db83 100644
 --- a/listener/sing_tun/server.go
