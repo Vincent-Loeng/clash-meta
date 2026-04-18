@@ -1,12 +1,14 @@
-socks-port: 11080
-port: 11081
+socks-port: 7890
+port: 7891
+mixed-port: 7892
+redir-port: 7893
 allow-lan: true
 ipv6: true
 mode: Rule
 log-level: info
 keep-alive-interval: 15
 external-controller: 127.0.0.1:9090
-global-client-fingerprint: chrom
+client-fingerprint: chrom
 
 profile:
   store-selected: true
