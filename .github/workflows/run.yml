@@ -56,19 +56,20 @@ jobs:
 
       - name: Apply patches
         run: |
-          git clone --depth 1 https://github.com/MetaCubeX/sing-tun.git sing-tun
           wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${version}.tar.gz -O mihomo-${version}.tar.gz
           tar -xf mihomo-${version}.tar.gz && mv mihomo-${version} mihomo
           ls -lha
-          cd sing-tun
-          patch -p1 < ../sing-tun.patch
-          cp monitor_darwin.go monitor_freebsd.go
-          cd ../mihomo
+          cd mihomo
           cp component/memory/memory_freebsd_amd64.go component/memory/memory_freebsd_riscv64.go
           patch -p1 < ../mihomo.patch
           sing_tun_version=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }')
           echo -e "\nreplace github.com/metacubex/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
-          git_head=$(git rev-parse --short HEAD)
+          cd ..
+          wget https://github.com/MetaCubeX/sing-tun/archive/refs/tags/v${sing_tun_version}.tar.gz -O sing-tun-${sing_tun_version}.tar.gz
+          tar -xf sing-tun-${sing_tun_version}.tar.gz && mv sing-tun-${sing_tun_version} sing-tun
+          cd sing-tun
+          patch -p1 < ../sing-tun.patch
+          cp monitor_darwin.go monitor_freebsd.go
 
       - name: Check for new version
         id: check
