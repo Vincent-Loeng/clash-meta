@@ -57,7 +57,8 @@ jobs:
       - name: Apply patches
         run: |
           git clone --depth 1 https://github.com/MetaCubeX/sing-tun.git sing-tun
-          git clone --depth 1 -b Meta https://github.com/MetaCubeX/mihomo.git mihomo
+          wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${version}.tar.gz -O mihomo-${version}.tar.gz
+          tar -xf mihomo-${version}.tar.gz && mv mihomo-${version} mihomo
           ls -lha
           cd sing-tun
           patch -p1 < ../sing-tun.patch
