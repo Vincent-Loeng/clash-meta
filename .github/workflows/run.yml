@@ -62,8 +62,9 @@ jobs:
           cd mihomo
           cp component/memory/memory_freebsd_amd64.go component/memory/memory_freebsd_riscv64.go
           patch -p1 < ../mihomo.patch
-          sing_tun_version=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }')
-          echo -e "\nreplace github.com/metacubex/sing-tun ${sing_tun_version} => ../sing-tun" >> go.mod
+          sing_tun_version=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }' | sed 's|v||g')
+          echo -e "\nreplace github.com/metacubex/sing-tun v${sing_tun_version} => ../sing-tun" >> go.mod
+          echo "${sing_tun_version}"
           cd ..
           wget https://github.com/MetaCubeX/sing-tun/archive/refs/tags/v${sing_tun_version}.tar.gz -O sing-tun-${sing_tun_version}.tar.gz
           tar -xf sing-tun-${sing_tun_version}.tar.gz && mv sing-tun-${sing_tun_version} sing-tun
