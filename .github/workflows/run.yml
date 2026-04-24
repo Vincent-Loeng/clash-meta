@@ -39,6 +39,10 @@ jobs:
       - name: Set variables
         run: |
           latest_version=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name' | sed 's|v||g')
+          if [ "${latest_version}" == "null" ]; then
+            echo "${latest_version}"
+            exit 1
+          fi
           echo "RELEASE_NAME=${latest_version}-vincent" >> $GITHUB_ENV
           echo "TAG_NAME=v${latest_version}-vincent" >> $GITHUB_ENV
           echo "tags=with_gvisor" >> $GITHUB_ENV
