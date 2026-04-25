@@ -96,7 +96,7 @@ jobs:
           patch -p1 < ../sing-tun.patch
           cp monitor_darwin.go monitor_freebsd.go
 
-      - name: Setup Go
+      - name: Setup go
         if: github.event_name != 'schedule' || env.NEW == 'true'
         uses: actions/setup-go@v6
         with:
