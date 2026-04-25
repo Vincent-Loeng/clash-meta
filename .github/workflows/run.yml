@@ -75,8 +75,8 @@ jobs:
       - name: Download and extract source files
         if: github.event_name != 'schedule' || env.NEW == 'true'
         run: |
-          wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${version}.tar.gz -O mihomo-${version}.tar.gz
-          tar -xf mihomo-${version}.tar.gz && mv mihomo-${version} mihomo
+          wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${VERSION}.tar.gz -O mihomo-${VERSION}.tar.gz
+          tar -xf mihomo-${VERSION}.tar.gz && mv mihomo-${VERSION} mihomo
           cd mihomo
           SING_TUN_VERSION=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }' | sed 's|v||g')
           echo -e "\nreplace github.com/metacubex/sing-tun v${SING_TUN_VERSION} => ../sing-tun" >> go.mod
