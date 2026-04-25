@@ -9,6 +9,7 @@ on:
       - hidden
     paths-ignore:
       - "**/README.md"
+      - "**/template.yaml"
 
 jobs:
   delete:
@@ -32,64 +33,68 @@ jobs:
           - { goos: freebsd, goarch: arm, goarm: 7 }
           - { goos: freebsd, goarch: arm64 }
     outputs:
-      new: ${{ steps.check.outputs.new }}
-      version: ${{ steps.check.outputs.version }}
+      NEW: ${{ steps.check.outputs.NEW }}
+      VERSION: ${{ steps.check.outputs.VERSION }}
 
     steps:
-      - name: Set variables
-        run: |
-          latest_version=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name' | sed 's|v||g')
-          if [ "${latest_version}" == "null" ]; then
-            echo "${latest_version}"
-            exit 1
-          fi
-          echo "RELEASE_NAME=${latest_version}-vincent" >> $GITHUB_ENV
-          echo "TAG_NAME=v${latest_version}-vincent" >> $GITHUB_ENV
-          echo "tags=with_gvisor" >> $GITHUB_ENV
-          echo "version=${latest_version}" >> $GITHUB_ENV
-        shell: bash
-
       - name: Checkout the "hidden" branch
         uses: actions/checkout@v6
         with:
           ref: hidden
 
-      - name: Apply patches
-        run: |
-          wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${version}.tar.gz -O mihomo-${version}.tar.gz
-          tar -xf mihomo-${version}.tar.gz && mv mihomo-${version} mihomo
-          ls -lha
-          cd mihomo
-          cp component/memory/memory_freebsd_amd64.go component/memory/memory_freebsd_riscv64.go
-          patch -p1 < ../mihomo.patch
-          sing_tun_version=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }' | sed 's|v||g')
-          echo -e "\nreplace github.com/metacubex/sing-tun v${sing_tun_version} => ../sing-tun" >> go.mod
-          echo "${sing_tun_version}"
-          cd ..
-          wget https://github.com/MetaCubeX/sing-tun/archive/refs/tags/v${sing_tun_version}.tar.gz -O sing-tun-${sing_tun_version}.tar.gz
-          tar -xf sing-tun-${sing_tun_version}.tar.gz && mv sing-tun-${sing_tun_version} sing-tun
-          cd sing-tun
-          patch -p1 < ../sing-tun.patch
-          cp monitor_darwin.go monitor_freebsd.go
-
       - name: Check for new version
         id: check
         run: |
+          LATEST_VERSION=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name' | sed 's|v||g')
+          if [ "${LATEST_VERSION}" == "null" ]; then
+            echo "wrong version"
+            exit 1
+          fi
+          echo "RELEASE_NAME=${LATEST_VERSION}-vincent" >> $GITHUB_ENV
+          echo "TAG_NAME=v${LATEST_VERSION}-vincent" >> $GITHUB_ENV
+          echo "TAGS=with_gvisor" >> $GITHUB_ENV
+          echo "VERSION=${LATEST_VERSION}" >> $GITHUB_ENV
+
           if [ -f last_version ]; then
             LAST_VERSION=$(cat last_version)
           else
             LAST_VERSION="none"
           fi
-          echo "Last version: ${LAST_VERSION}, current version: ${{ env.version }}"
-          if [ "${{ env.version }}" != "${LAST_VERSION}" ]; then
-            echo "${{ env.version }}" > last_version
-            echo "new=true" >> $GITHUB_ENV
-            echo "new=true" >> $GITHUB_OUTPUT
+          echo "Last version: ${LAST_VERSION}, current version: ${LATEST_VERSION}"
+          if [ "${LATEST_VERSION}" != "${LAST_VERSION}" ]; then
+            echo "${LATEST_VERSION}" > last_reF1nd_version
+            echo "NEW=true" >> $GITHUB_ENV
+            echo "NEW=true" >> $GITHUB_OUTPUT
           else
-            echo "new=false" >> $GITHUB_ENV
-            echo "new=false" >> $GITHUB_OUTPUT
+            echo "NEW=false" >> $GITHUB_ENV
+            echo "NEW=false" >> $GITHUB_OUTPUT
           fi
-          echo "version=${version}" >> $GITHUB_OUTPUT
+          echo "VERSION=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Download and extract source files
+        if: github.event_name != 'schedule' || env.NEW == 'true'
+        run: |
+          wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${version}.tar.gz -O mihomo-${version}.tar.gz
+          tar -xf mihomo-${version}.tar.gz && mv mihomo-${version} mihomo
+          cd mihomo
+          SING_TUN_VERSION=$(cat go.mod | grep github.com/metacubex/sing-tun | awk '{ print $2 }' | sed 's|v||g')
+          echo -e "\nreplace github.com/metacubex/sing-tun v${SING_TUN_VERSION} => ../sing-tun" >> go.mod
+          echo -e "sing-tun version: ${SING_TUN_VERSION}"
+          cd ..
+          wget https://github.com/MetaCubeX/sing-tun/archive/refs/tags/v${SING_TUN_VERSION}.tar.gz -O sing-tun-${SING_TUN_VERSION}.tar.gz
+          tar -xf sing-tun-${SING_TUN_VERSION}.tar.gz && mv sing-tun-${SING_TUN_VERSION} sing-tun
+          ls -lha
+
+      - name: Apply patches
+        if: github.event_name != 'schedule' || env.NEW == 'true'
+        run: |
+          cd mihomo
+          cp component/memory/memory_freebsd_amd64.go component/memory/memory_freebsd_riscv64.go
+          patch -p1 < ../mihomo.patch
+          cd ../sing-tun
+          patch -p1 < ../sing-tun.patch
+          cp monitor_darwin.go monitor_freebsd.go
 
       - name: Setup Go
         if: github.event_name != 'schedule' || env.new == 'true'
@@ -164,7 +169,7 @@ jobs:
 
   push:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' && needs.build.outputs.new == 'true'
+    if: needs.build.outputs.new == 'true'
     needs:
       - build
     steps:
