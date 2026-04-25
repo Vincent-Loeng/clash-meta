@@ -64,7 +64,7 @@ jobs:
             LAST_VERSION="none"
           fi
           echo "Last version: ${LAST_VERSION}, current version: ${{ env.VERSION }}"
-          if [ "${ env.VERSION }}" != "${LAST_VERSION}" ]; then
+          if [ "${{ env.VERSION }}" != "${LAST_VERSION}" ]; then
             echo "${{ env.VERSION }}" > last_reF1nd_version
             echo "NEW=true" >> $GITHUB_ENV
             echo "NEW=true" >> $GITHUB_OUTPUT
