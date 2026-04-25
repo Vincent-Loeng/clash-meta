@@ -169,7 +169,7 @@ jobs:
 
   push:
     runs-on: ubuntu-latest
-    if: needs.build.outputs.new == 'true'
+    if: needs.build.outputs.NEW == 'true'
     needs:
       - build
     steps:
@@ -180,14 +180,14 @@ jobs:
 
       - name: Update last_version
         run: |
-          echo "${{ needs.build.outputs.version }}" > last_version
+          echo "${{ needs.build.outputs.VERSION }}" > last_version
 
       - name: Push last_version to "hidden" branch
         run: |
           git config --local user.name "Vincent Loeng"
           git config --local user.email "173226116+Vincent-Loeng@users.noreply.github.com"
           git add last_version
-          git commit -m "Release ${{ needs.build.outputs.version }}"
+          git commit -m "Release ${{ needs.build.outputs.VERSION }}"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
