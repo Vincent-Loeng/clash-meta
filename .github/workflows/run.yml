@@ -43,7 +43,6 @@ jobs:
           ref: hidden
 
       - name: Calculate latest version
-        id: check
         run: |
           LATEST_VERSION=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name' | sed 's|v||g')
           if [ "${LATEST_VERSION}" == "null" ]; then
