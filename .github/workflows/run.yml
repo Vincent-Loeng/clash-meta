@@ -75,7 +75,7 @@ jobs:
           echo "VERSION=${{ env.VERSION }}" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Download and extract source files
+      - name: Download and extract source tarball files
         if: github.event_name != 'schedule' || env.NEW == 'true'
         run: |
           wget https://github.com/MetaCubeX/mihomo/archive/refs/tags/v${{ env.VERSION }}.tar.gz -O mihomo-${{ env.VERSION }}.tar.gz
@@ -129,15 +129,17 @@ jobs:
             ~/.cache/go-build
           key: go-${{ hashFiles('**/go.sum') }}-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.goarm }}
 
-      - name: Build binary file
+      - name: Build and compress binary file
         if: github.event_name != 'schedule' || env.NEW == 'true'
         run: |
           cd mihomo
           go build -v -tags ${{ env.TAGS }} -trimpath -ldflags '-X "github.com/metacubex/mihomo/constant.Version=${{ env.RELEASE_NAME }}" -X "github.com/metacubex/mihomo/constant.BuildTime=none" -w -s -buildid=' -o mihomo
           if [ "${{ matrix.goarch }}" == 'arm' ]; then
             mv mihomo clash-meta-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
+            xz -v clash-meta-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
           else
             mv mihomo clash-meta-${{ matrix.goos }}-${{ matrix.goarch }}
+            xz -v clash-meta-${{ matrix.goos }}-${{ matrix.goarch }}
           fi
         env:
           GOOS: ${{ matrix.goos }}
@@ -145,17 +147,11 @@ jobs:
           GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
 
-      - name: Compress and move file to publish directory
+      - name: Move file to publish directory
         if: github.event_name != 'schedule' || env.NEW == 'true'
         run: |
-          cd mihomo
-          if [ "${{ matrix.goarch }}" == 'arm' ]; then
-            xz -v clash-meta-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}
-          else
-            xz -v clash-meta-${{ matrix.goos }}-${{ matrix.goarch }}
-          fi
-          mkdir -p ../publish
-          cp -v clash-meta-* ../publish/
+          mkdir -p publish
+          cp -v mihomo/clash-meta-* publish/
 
       - name: Release and upload assets
         if: github.event_name != 'schedule' || env.NEW == 'true'
